@@ -1046,7 +1046,8 @@ func TestExportSession_HTMLContent(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf(
-				"expected body to contain %q", want,
+				"expected to contain %q, got:\n%s",
+				want, body,
 			)
 		}
 	}
