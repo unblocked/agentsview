@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tidwall/gjson"
+	"github.com/wesm/agentsview/internal/testjsonl"
 )
 
 func TestGetProjectName(t *testing.T) {
@@ -393,7 +394,7 @@ func TestParseTimestamp(t *testing.T) {
 
 func TestClaudeSessionTimestampSemantics(t *testing.T) {
 	t.Run("snapshot.timestamp fallback", func(t *testing.T) {
-		content := claudeSnapshotJSON("2024-06-15T12:00:00Z")
+		content := testjsonl.ClaudeSnapshotJSON("2024-06-15T12:00:00Z")
 		sess, msgs := parseClaudeTestFile(
 			t, "ts-fallback.jsonl", content, "proj",
 		)
@@ -410,7 +411,7 @@ func TestClaudeSessionTimestampSemantics(t *testing.T) {
 	})
 
 	t.Run("offset timestamp normalized to UTC", func(t *testing.T) {
-		content := claudeUserJSON("hello", "2024-06-15T17:00:00+05:00")
+		content := testjsonl.ClaudeUserJSON("hello", "2024-06-15T17:00:00+05:00")
 		sess, msgs := parseClaudeTestFile(
 			t, "ts-offset.jsonl", content, "proj",
 		)
@@ -426,7 +427,7 @@ func TestClaudeSessionTimestampSemantics(t *testing.T) {
 	})
 
 	t.Run("unparseable timestamp yields zero", func(t *testing.T) {
-		content := claudeUserJSON("hello", "garbage")
+		content := testjsonl.ClaudeUserJSON("hello", "garbage")
 		sess, msgs := parseClaudeTestFile(
 			t, "ts-bad.jsonl", content, "proj",
 		)
@@ -505,19 +506,19 @@ func createTestFile(
 }
 
 func TestParseClaudeSession(t *testing.T) {
-	validContent := joinJSONL(
-		claudeUserJSON("Fix the login bug", tsEarly, "/Users/wesm/code/my-app"),
-		claudeAssistantJSON([]map[string]any{
+	validContent := testjsonl.JoinJSONL(
+		testjsonl.ClaudeUserJSON("Fix the login bug", tsEarly, "/Users/wesm/code/my-app"),
+		testjsonl.ClaudeAssistantJSON([]map[string]any{
 			{"type": "text", "text": "Looking at the auth module..."},
 			{"type": "tool_use", "name": "Read", "input": map[string]string{"file_path": "src/auth.ts"}},
 		}, tsEarlyS5),
-		claudeUserJSON("That looks right", tsLate),
-		claudeAssistantJSON([]map[string]any{
+		testjsonl.ClaudeUserJSON("That looks right", tsLate),
+		testjsonl.ClaudeAssistantJSON([]map[string]any{
 			{"type": "text", "text": "Applied the fix."},
 		}, tsLateS5),
 	)
 	longMsg := generateLargeString(400)
-	goodUTF8 := claudeUserJSON("valid message", tsZero) + "\n"
+	goodUTF8 := testjsonl.ClaudeUserJSON("valid message", tsZero) + "\n"
 	// Keeping badUTF8 manual as it tests raw byte corruption which is hard to structured-build safely
 	badUTF8 := `{"type":"user","timestamp":"` + tsZeroS1 + `","message":{"content":"bad ` +
 		string([]byte{0xff, 0xfe}) + `"}}` + "\n"
@@ -575,16 +576,16 @@ func TestParseClaudeSession(t *testing.T) {
 		},
 		{
 			name: "skips blank content",
-			content: joinJSONL(
-				claudeUserJSON("", tsZero),
-				claudeUserJSON("  ", tsZeroS1),
-				claudeUserJSON("actual message", tsZeroS2),
+			content: testjsonl.JoinJSONL(
+				testjsonl.ClaudeUserJSON("", tsZero),
+				testjsonl.ClaudeUserJSON("  ", tsZeroS1),
+				testjsonl.ClaudeUserJSON("actual message", tsZeroS2),
 			),
 			wantMsgCount: 1,
 		},
 		{
 			name:         "truncates long first message",
-			content:      claudeUserJSON(longMsg, tsZero) + "\n",
+			content:      testjsonl.ClaudeUserJSON(longMsg, tsZero) + "\n",
 			wantMsgCount: 1,
 			check: func(t *testing.T, sess ParsedSession, _ []ParsedMessage) {
 				t.Helper()
@@ -597,7 +598,7 @@ func TestParseClaudeSession(t *testing.T) {
 		{
 			name: "skips invalid JSON lines",
 			content: "not valid json\n" +
-				claudeUserJSON("hello", tsZero) + "\n" +
+				testjsonl.ClaudeUserJSON("hello", tsZero) + "\n" +
 				"also not valid\n",
 			wantMsgCount: 1,
 		},
@@ -615,7 +616,7 @@ func TestParseClaudeSession(t *testing.T) {
 		},
 		{
 			name:         "very large message",
-			content:      claudeUserJSON(bigMsg, tsZero) + "\n",
+			content:      testjsonl.ClaudeUserJSON(bigMsg, tsZero) + "\n",
 			wantMsgCount: 1,
 			check: func(t *testing.T, _ ParsedSession, msgs []ParsedMessage) {
 				t.Helper()
@@ -628,17 +629,17 @@ func TestParseClaudeSession(t *testing.T) {
 		{
 			name: "skips empty lines in file",
 			content: "\n\n" +
-				claudeUserJSON("msg1", tsZero) +
+				testjsonl.ClaudeUserJSON("msg1", tsZero) +
 				"\n   \n\t\n" +
-				claudeAssistantJSON([]map[string]any{{"type": "text", "text": "reply"}}, tsZeroS1) +
+				testjsonl.ClaudeAssistantJSON([]map[string]any{{"type": "text", "text": "reply"}}, tsZeroS1) +
 				"\n\n",
 			wantMsgCount: 2,
 		},
 		{
 			name: "skips partial/truncated JSON",
-			content: claudeUserJSON("first", tsZero) + "\n" +
+			content: testjsonl.ClaudeUserJSON("first", tsZero) + "\n" +
 				`{"type":"user","truncated` + "\n" +
-				claudeAssistantJSON([]map[string]any{{"type": "text", "text": "last"}}, tsZeroS2) + "\n",
+				testjsonl.ClaudeAssistantJSON([]map[string]any{{"type": "text", "text": "last"}}, tsZeroS2) + "\n",
 			wantMsgCount: 2,
 		},
 	}
@@ -671,9 +672,9 @@ func TestParseClaudeSession(t *testing.T) {
 }
 
 func TestParseCodexSession(t *testing.T) {
-	execContent := joinJSONL(
-		codexSessionMetaJSON("abc", "/tmp", "codex_exec", tsEarly),
-		codexMsgJSON("user", "test", tsEarlyS1),
+	execContent := testjsonl.JoinJSONL(
+		testjsonl.CodexSessionMetaJSON("abc", "/tmp", "codex_exec", tsEarly),
+		testjsonl.CodexMsgJSON("user", "test", tsEarlyS1),
 	)
 
 	tests := []struct {
@@ -688,10 +689,10 @@ func TestParseCodexSession(t *testing.T) {
 	}{
 		{
 			name: "standard session",
-			content: joinJSONL(
-				codexSessionMetaJSON("abc-123", "/Users/wesm/code/my-api", "user", tsEarly),
-				codexMsgJSON("user", "Add rate limiting", tsEarlyS1),
-				codexMsgJSON("assistant", "I'll add rate limiting to the API.", tsEarlyS5),
+			content: testjsonl.JoinJSONL(
+				testjsonl.CodexSessionMetaJSON("abc-123", "/Users/wesm/code/my-api", "user", tsEarly),
+				testjsonl.CodexMsgJSON("user", "Add rate limiting", tsEarlyS1),
+				testjsonl.CodexMsgJSON("assistant", "I'll add rate limiting to the API.", tsEarlyS5),
 			),
 			wantID:   "codex:abc-123",
 			wantMsgs: 2,
@@ -715,12 +716,12 @@ func TestParseCodexSession(t *testing.T) {
 		},
 		{
 			name: "skips system messages",
-			content: joinJSONL(
-				codexSessionMetaJSON("abc", "/tmp", "user", tsEarly),
-				codexMsgJSON("user", "# AGENTS.md\nsome instructions", tsEarlyS1),
-				codexMsgJSON("user", "<environment_context>stuff</environment_context>", "2024-01-01T10:00:02Z"),
-				codexMsgJSON("user", "<INSTRUCTIONS>ignore</INSTRUCTIONS>", "2024-01-01T10:00:03Z"),
-				codexMsgJSON("user", "Actual user message", "2024-01-01T10:00:04Z"),
+			content: testjsonl.JoinJSONL(
+				testjsonl.CodexSessionMetaJSON("abc", "/tmp", "user", tsEarly),
+				testjsonl.CodexMsgJSON("user", "# AGENTS.md\nsome instructions", tsEarlyS1),
+				testjsonl.CodexMsgJSON("user", "<environment_context>stuff</environment_context>", "2024-01-01T10:00:02Z"),
+				testjsonl.CodexMsgJSON("user", "<INSTRUCTIONS>ignore</INSTRUCTIONS>", "2024-01-01T10:00:03Z"),
+				testjsonl.CodexMsgJSON("user", "Actual user message", "2024-01-01T10:00:04Z"),
 			),
 			wantID:   "codex:abc",
 			wantMsgs: 1,
@@ -733,8 +734,8 @@ func TestParseCodexSession(t *testing.T) {
 		},
 		{
 			name: "fallback ID from filename",
-			content: joinJSONL(
-				codexMsgJSON("user", "hello", tsEarlyS1),
+			content: testjsonl.JoinJSONL(
+				testjsonl.CodexMsgJSON("user", "hello", tsEarlyS1),
 			),
 			wantID:   "codex:test",
 			wantMsgs: 1,
@@ -742,17 +743,17 @@ func TestParseCodexSession(t *testing.T) {
 		{
 			name:     "fallback ID from hyphenated filename",
 			fileName: "my-codex-session.jsonl",
-			content: joinJSONL(
-				codexMsgJSON("user", "hello", tsEarlyS1),
+			content: testjsonl.JoinJSONL(
+				testjsonl.CodexMsgJSON("user", "hello", tsEarlyS1),
 			),
 			wantID:   "codex:my-codex-session",
 			wantMsgs: 1,
 		},
 		{
 			name: "large message within scanner limit",
-			content: joinJSONL(
-				codexSessionMetaJSON("big", "/tmp", "user", tsEarly),
-				codexMsgJSON("user", generateLargeString(1024*1024), tsEarlyS1),
+			content: testjsonl.JoinJSONL(
+				testjsonl.CodexSessionMetaJSON("big", "/tmp", "user", tsEarly),
+				testjsonl.CodexMsgJSON("user", generateLargeString(1024*1024), tsEarlyS1),
 			),
 			wantID:   "codex:big",
 			wantMsgs: 1,
@@ -768,10 +769,10 @@ func TestParseCodexSession(t *testing.T) {
 		},
 		{
 			name: "second session_meta with unparsable cwd resets project",
-			content: joinJSONL(
-				codexSessionMetaJSON("multi", "/Users/wesm/code/my-api", "user", tsEarly),
-				codexMsgJSON("user", "hello", tsEarlyS1),
-				codexSessionMetaJSON("multi", "/", "user", "2024-01-01T10:00:02Z"),
+			content: testjsonl.JoinJSONL(
+				testjsonl.CodexSessionMetaJSON("multi", "/Users/wesm/code/my-api", "user", tsEarly),
+				testjsonl.CodexMsgJSON("user", "hello", tsEarlyS1),
+				testjsonl.CodexSessionMetaJSON("multi", "/", "user", "2024-01-01T10:00:02Z"),
 			),
 			wantID:   "codex:multi",
 			wantMsgs: 1,
@@ -826,7 +827,7 @@ func TestParseCodexSession(t *testing.T) {
 
 func TestCodexSessionTimestampSemantics(t *testing.T) {
 	t.Run("invalid timestamp logs warning", func(t *testing.T) {
-		content := codexMsgJSON("user", "hello", "garbage") + "\n"
+		content := testjsonl.CodexMsgJSON("user", "hello", "garbage") + "\n"
 		path := createTestFile(t, "codex-ts-invalid.jsonl", content)
 		buf := captureLog(t)
 
@@ -849,7 +850,7 @@ func TestCodexSessionTimestampSemantics(t *testing.T) {
 
 	t.Run("very long invalid timestamp is truncated in log", func(t *testing.T) {
 		longInvalid := strings.Repeat("x", 200)
-		content := codexMsgJSON("user", "hello", longInvalid) + "\n"
+		content := testjsonl.CodexMsgJSON("user", "hello", longInvalid) + "\n"
 		path := createTestFile(t, "codex-ts-long-invalid.jsonl", content)
 		buf := captureLog(t)
 
@@ -868,7 +869,7 @@ func TestCodexSessionTimestampSemantics(t *testing.T) {
 }
 
 func TestParseCodexSessionScannerLimit(t *testing.T) {
-	meta := codexSessionMetaJSON("huge", "/tmp", "user", tsEarly) + "\n"
+	meta := testjsonl.CodexSessionMetaJSON("huge", "/tmp", "user", tsEarly) + "\n"
 	prefix := `{"type":"response_item","timestamp":"` + tsEarlyS1 + `","payload":{"role":"user","content":[{"type":"input_text","text":"`
 	suffix := `"}]}}` + "\n"
 	envelope := len(prefix) + len(suffix)

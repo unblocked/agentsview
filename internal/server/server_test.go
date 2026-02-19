@@ -23,6 +23,7 @@ import (
 	"github.com/wesm/agentsview/internal/dbtest"
 	"github.com/wesm/agentsview/internal/server"
 	"github.com/wesm/agentsview/internal/sync"
+	"github.com/wesm/agentsview/internal/testjsonl"
 )
 
 // Timestamp constants for test data.
@@ -104,17 +105,6 @@ func (te *testEnv) writeProjectFile(
 	path := filepath.Join(te.claudeDir, project, filename)
 	dbtest.WriteTestFile(t, path, []byte(content))
 	return path
-}
-
-// writeSessionFile builds JSONL from the given log entries and
-// writes it as a project file. Returns the file path.
-func (te *testEnv) writeSessionFile(
-	t *testing.T, project, filename string,
-	entries ...LogEntry,
-) string {
-	t.Helper()
-	content := buildJSONL(t, entries...)
-	return te.writeProjectFile(t, project, filename, content)
 }
 
 // listenAndServe starts the server on a real port and returns the
@@ -346,24 +336,6 @@ func expiredContext(
 	return context.WithDeadline(
 		context.Background(), time.Now().Add(-1*time.Hour),
 	)
-}
-
-type LogEntry struct {
-	Type      string `json:"type"`
-	Timestamp string `json:"timestamp"`
-	Message   any    `json:"message"`
-}
-
-func buildJSONL(t *testing.T, entries ...LogEntry) string {
-	t.Helper()
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	for _, e := range entries {
-		if err := enc.Encode(e); err != nil {
-			t.Fatalf("encoding jsonl: %v", err)
-		}
-	}
-	return buf.String()
 }
 
 func (te *testEnv) waitForSSEEvent(t *testing.T, w *flushRecorder, expectedEvent string, timeout time.Duration) {
@@ -1054,10 +1026,10 @@ func TestExportSession_HTMLContent(t *testing.T) {
 func TestUploadSession(t *testing.T) {
 	te := setup(t)
 
-	content := buildJSONL(t,
-		LogEntry{Type: "user", Timestamp: tsEarly, Message: map[string]string{"content": "Hello upload"}},
-		LogEntry{Type: "assistant", Timestamp: tsEarlyS5, Message: map[string]any{"content": []map[string]string{{"type": "text", "text": "Hi!"}}}},
-	)
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsEarly, "Hello upload").
+		AddClaudeAssistant(tsEarlyS5, "Hi!").
+		String()
 
 	w := te.upload(t, "upload-test.jsonl", content,
 		"project=myproj&machine=remote")
@@ -1157,8 +1129,10 @@ func TestTriggerSync_NonStreaming(t *testing.T) {
 	te := setup(t)
 
 	// Seed a session file so we expect at least one session in the sync result.
-	te.writeSessionFile(t, "test-proj", "sync-test.jsonl",
-		LogEntry{Type: "user", Timestamp: tsZero, Message: map[string]string{"content": "msg"}},
+	te.writeProjectFile(t, "test-proj", "sync-test.jsonl",
+		testjsonl.NewSessionBuilder().
+			AddClaudeUser(tsZero, "msg").
+			String(),
 	)
 
 	rec := httptest.NewRecorder()
@@ -1201,8 +1175,10 @@ func (f *flushRecorder) BodyString() string {
 func TestTriggerSync_SSE(t *testing.T) {
 	te := setup(t)
 
-	te.writeSessionFile(t, "test-proj", "sse-test.jsonl",
-		LogEntry{Type: "user", Timestamp: tsZero, Message: map[string]string{"content": "msg"}},
+	te.writeProjectFile(t, "test-proj", "sse-test.jsonl",
+		testjsonl.NewSessionBuilder().
+			AddClaudeUser(tsZero, "msg").
+			String(),
 	)
 
 	req := httptest.NewRequest("POST", "/api/v1/sync", nil)
@@ -1216,9 +1192,9 @@ func TestTriggerSync_SSE(t *testing.T) {
 func TestWatchSession_Events(t *testing.T) {
 	te := setup(t)
 
-	content := buildJSONL(t,
-		LogEntry{Type: "user", Timestamp: tsZero, Message: map[string]string{"content": "initial"}},
-	)
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "initial").
+		String()
 	sessionPath := te.writeProjectFile(t, "watch-proj", "watch-sess.jsonl", content)
 
 	engine := sync.NewEngine(
@@ -1245,9 +1221,9 @@ func TestWatchSession_Events(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	updated := content + buildJSONL(t,
-		LogEntry{Type: "assistant", Timestamp: tsZeroS5, Message: map[string]any{"content": []map[string]string{{"type": "text", "text": "response"}}}},
-	)
+	updated := content + testjsonl.NewSessionBuilder().
+		AddClaudeAssistant(tsZeroS5, "response").
+		String()
 	if err := os.WriteFile(
 		sessionPath, []byte(updated), 0o644,
 	); err != nil {
@@ -1262,9 +1238,9 @@ func TestWatchSession_Events(t *testing.T) {
 func TestWatchSession_FileDisappearAndResolve(t *testing.T) {
 	te := setup(t)
 
-	content := buildJSONL(t,
-		LogEntry{Type: "user", Timestamp: tsZero, Message: map[string]string{"content": "initial"}},
-	)
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "initial").
+		String()
 	sessionPath := te.writeProjectFile(t, "vanish-proj", "vanish-sess.jsonl", content)
 
 	engine := sync.NewEngine(
@@ -1303,9 +1279,9 @@ func TestWatchSession_FileDisappearAndResolve(t *testing.T) {
 
 	// Recreate the file with updated content at a NEW location
 	// so we verify that FindSourceFile actually re-scans.
-	updated := content + buildJSONL(t,
-		LogEntry{Type: "assistant", Timestamp: tsZeroS5, Message: map[string]any{"content": []map[string]string{{"type": "text", "text": "recovered"}}}},
-	)
+	updated := content + testjsonl.NewSessionBuilder().
+		AddClaudeAssistant(tsZeroS5, "recovered").
+		String()
 	te.writeProjectFile(t, "moved-proj", "vanish-sess.jsonl", updated)
 
 	te.waitForSSEEvent(t, w, "session_updated", 8*time.Second)
@@ -1332,8 +1308,10 @@ func TestTriggerSync_SSEEvents(t *testing.T) {
 	te := setup(t)
 
 	for _, name := range []string{"a", "b"} {
-		te.writeSessionFile(t, "sse-proj", name+".jsonl",
-			LogEntry{Type: "user", Timestamp: tsZero, Message: map[string]string{"content": fmt.Sprintf("msg %s", name)}},
+		te.writeProjectFile(t, "sse-proj", name+".jsonl",
+			testjsonl.NewSessionBuilder().
+				AddClaudeUser(tsZero, fmt.Sprintf("msg %s", name)).
+				String(),
 		)
 	}
 

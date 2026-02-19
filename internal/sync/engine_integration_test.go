@@ -9,6 +9,7 @@ import (
 	"github.com/wesm/agentsview/internal/db"
 	"github.com/wesm/agentsview/internal/dbtest"
 	"github.com/wesm/agentsview/internal/sync"
+	"github.com/wesm/agentsview/internal/testjsonl"
 )
 
 type testEnv struct {
@@ -75,7 +76,7 @@ func (e *testEnv) writeCodexSession(
 func TestSyncEngineIntegration(t *testing.T) {
 	env := setupTestEnv(t)
 
-	content := NewSessionBuilder().
+	content := testjsonl.NewSessionBuilder().
 		AddClaudeUser(tsEarly, "Hello", "/Users/wesm/code/my-app").
 		AddClaudeAssistant(tsEarlyS5, "Hi there!").
 		String()
@@ -121,7 +122,7 @@ func TestSyncEngineIntegration(t *testing.T) {
 func TestSyncEngineCodex(t *testing.T) {
 	env := setupTestEnv(t)
 
-	content := NewSessionBuilder().
+	content := testjsonl.NewSessionBuilder().
 		AddCodexMeta(tsEarly, "test-uuid", "/home/user/code/api", "user").
 		AddCodexMessage(tsEarlyS1, "user", "Add tests").
 		AddCodexMessage(tsEarlyS5, "assistant", "Adding test coverage.").
@@ -150,7 +151,7 @@ func TestSyncEngineCodex(t *testing.T) {
 func TestSyncEngineProgress(t *testing.T) {
 	env := setupTestEnv(t)
 
-	msg := NewSessionBuilder().
+	msg := testjsonl.NewSessionBuilder().
 		AddClaudeUser(tsZero, "msg").
 		String()
 
@@ -173,7 +174,7 @@ func TestSyncEngineProgress(t *testing.T) {
 func TestSyncEngineHashSkip(t *testing.T) {
 	env := setupTestEnv(t)
 
-	content := NewSessionBuilder().
+	content := testjsonl.NewSessionBuilder().
 		AddClaudeUser(tsZero, "msg1").
 		String()
 
@@ -200,7 +201,7 @@ func TestSyncEngineHashSkip(t *testing.T) {
 	runSyncAndAssert(t, env.engine, 0, 1)
 
 	// Overwrite with same-size but different content.
-	different := NewSessionBuilder().
+	different := testjsonl.NewSessionBuilder().
 		AddClaudeUser(tsZero, "msg2").
 		String()
 
@@ -245,7 +246,7 @@ func TestSyncEngineTombstone(t *testing.T) {
 func TestSyncEngineFileAppend(t *testing.T) {
 	env := setupTestEnv(t)
 
-	initial := NewSessionBuilder().
+	initial := testjsonl.NewSessionBuilder().
 		AddClaudeUser(tsZero, "first").
 		String()
 
@@ -264,7 +265,7 @@ func TestSyncEngineFileAppend(t *testing.T) {
 	})
 
 	// Append a new message (changes size and hash)
-	appended := initial + NewSessionBuilder().
+	appended := initial + testjsonl.NewSessionBuilder().
 		AddClaudeAssistant(tsZeroS5, "reply").
 		String()
 
@@ -284,7 +285,7 @@ func TestSyncEngineFileAppend(t *testing.T) {
 func TestSyncSingleSessionHash(t *testing.T) {
 	env := setupTestEnv(t)
 
-	content := NewSessionBuilder().
+	content := testjsonl.NewSessionBuilder().
 		AddClaudeUser(tsZero, "hello").
 		AddClaudeAssistant(tsZeroS5, "hi").
 		String()
@@ -301,7 +302,7 @@ func TestSyncSingleSessionHashCodex(t *testing.T) {
 	env := setupTestEnv(t)
 
 	uuid := "a1b2c3d4-1234-5678-9abc-def012345678"
-	content := NewSessionBuilder().
+	content := testjsonl.NewSessionBuilder().
 		AddCodexMeta(tsEarly, uuid, "/home/user/code/api", "user").
 		AddCodexMessage(tsEarlyS1, "user", "Add tests").
 		AddCodexMessage(tsEarlyS5, "assistant", "Adding test coverage.").
@@ -331,7 +332,7 @@ func TestSyncEngineTombstoneClearOnMtimeChange(t *testing.T) {
 	env.engine.SyncAll(nil)
 
 	// Replace with valid content
-	valid := NewSessionBuilder().
+	valid := testjsonl.NewSessionBuilder().
 		AddClaudeUser(tsZero, "hello").
 		AddClaudeAssistant(tsZeroS5, "hi").
 		String()
@@ -353,7 +354,7 @@ func TestSyncSingleSessionProjectFallback(t *testing.T) {
 	env := setupTestEnv(t)
 
 	// 1. Create a session in a directory "default-proj"
-	content := NewSessionBuilder().
+	content := testjsonl.NewSessionBuilder().
 		AddClaudeUser(tsZero, "hello").
 		String()
 
@@ -424,7 +425,7 @@ func TestSyncSingleSessionProjectFallback(t *testing.T) {
 func TestSyncEngineNoTrailingNewline(t *testing.T) {
 	env := setupTestEnv(t)
 
-	content := NewSessionBuilder().
+	content := testjsonl.NewSessionBuilder().
 		AddClaudeUser(tsEarly, "Hello").
 		StringNoTrailingNewline()
 
@@ -446,7 +447,7 @@ func TestSyncEngineCodexNoTrailingNewline(t *testing.T) {
 	env := setupTestEnv(t)
 
 	uuid := "b2c3d4e5-2345-6789-0abc-def123456789"
-	content := NewSessionBuilder().
+	content := testjsonl.NewSessionBuilder().
 		AddCodexMeta(tsEarly, uuid, "/home/user/code/api", "user").
 		AddCodexMessage(tsEarlyS1, "user", "Hello").
 		StringNoTrailingNewline()

@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/wesm/agentsview/internal/testjsonl"
 )
 
 // Timestamp constants for test data.
@@ -21,28 +19,6 @@ const (
 	tsLate    = "2024-01-01T10:01:00Z"
 	tsLateS5  = "2024-01-01T10:01:05Z"
 )
-
-// --- JSON Builders (delegate to shared testjsonl package) ---
-
-func claudeUserJSON(content, timestamp string, cwd ...string) string {
-	return testjsonl.ClaudeUserJSON(content, timestamp, cwd...)
-}
-
-func claudeAssistantJSON(content any, timestamp string) string {
-	return testjsonl.ClaudeAssistantJSON(content, timestamp)
-}
-
-func claudeSnapshotJSON(timestamp string) string {
-	return testjsonl.ClaudeSnapshotJSON(timestamp)
-}
-
-func codexSessionMetaJSON(id, cwd, originator, timestamp string) string {
-	return testjsonl.CodexSessionMetaJSON(id, cwd, originator, timestamp)
-}
-
-func codexMsgJSON(role, text, timestamp string) string {
-	return testjsonl.CodexMsgJSON(role, text, timestamp)
-}
 
 // --- Data Generators ---
 
@@ -161,8 +137,4 @@ func parseClaudeTestFile(
 		t.Fatalf("ParseClaudeSession: %v", err)
 	}
 	return sess, msgs
-}
-
-func joinJSONL(lines ...string) string {
-	return testjsonl.JoinJSONL(lines...)
 }
