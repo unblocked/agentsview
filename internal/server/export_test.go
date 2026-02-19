@@ -11,7 +11,92 @@ import (
 	"testing"
 
 	"github.com/wesm/agentsview/internal/db"
+	"github.com/wesm/agentsview/internal/dbtest"
 )
+
+// testSession returns a *db.Session with sensible defaults.
+// Override fields after calling or via functional options.
+func testSession(
+	opts ...func(*db.Session),
+) *db.Session {
+	s := &db.Session{
+		ID:           "test-id",
+		Project:      "proj",
+		Agent:        "claude",
+		MessageCount: 0,
+		StartedAt:    dbtest.Ptr("2025-01-15T10:00:00Z"),
+	}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+// stubServer returns an httptest.Server that responds with
+// the given status code and body. Caller must defer ts.Close().
+func stubServer(
+	status int, body string,
+) *httptest.Server {
+	return httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+				if body != "" {
+					w.Write([]byte(body))
+				}
+			},
+		),
+	)
+}
+
+// assertContainsAll checks that got contains every string
+// in wants.
+func assertContainsAll(
+	t *testing.T, got string, wants []string,
+) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Errorf(
+				"expected to contain %q, got:\n%s",
+				want, got,
+			)
+		}
+	}
+}
+
+// assertContainsNone checks that got does not contain any
+// string in bads.
+func assertContainsNone(
+	t *testing.T, got string, bads []string,
+) {
+	t.Helper()
+	for _, bad := range bads {
+		if strings.Contains(got, bad) {
+			t.Errorf(
+				"expected NOT to contain %q, got:\n%s",
+				bad, got,
+			)
+		}
+	}
+}
+
+// assertContextCancelled checks that err is non-nil and
+// wraps context.Canceled.
+func assertContextCancelled(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+	if !errors.Is(err, context.Canceled) &&
+		!strings.Contains(
+			err.Error(), "context canceled",
+		) {
+		t.Errorf(
+			"expected context.Canceled, got: %v", err,
+		)
+	}
+}
 
 func TestFormatTimestamp(t *testing.T) {
 	t.Parallel()
@@ -67,7 +152,6 @@ func TestFormatTimestamp(t *testing.T) {
 
 func TestFormatDateShort(t *testing.T) {
 	t.Parallel()
-	s := func(v string) *string { return &v }
 
 	tests := []struct {
 		name string
@@ -75,20 +159,20 @@ func TestFormatDateShort(t *testing.T) {
 		want string
 	}{
 		{"Nil", nil, "unknown"},
-		{"Empty", s(""), "unknown"},
+		{"Empty", dbtest.Ptr(""), "unknown"},
 		{
 			"Valid",
-			s("2025-01-15T10:30:00Z"),
+			dbtest.Ptr("2025-01-15T10:30:00Z"),
 			"20250115",
 		},
 		{
 			"Nano",
-			s("2025-06-01T08:15:30.999Z"),
+			dbtest.Ptr("2025-06-01T08:15:30.999Z"),
 			"20250601",
 		},
 		{
 			"Unparseable",
-			s("garbage"),
+			dbtest.Ptr("garbage"),
 			"unknown",
 		},
 	}
@@ -211,24 +295,8 @@ func TestFormatContentForExport_Escaping(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := formatContentForExport(tt.input)
-			for _, want := range tt.contains {
-				if !strings.Contains(got, want) {
-					t.Errorf(
-						"expected output to contain %q,"+
-							" got:\n%s",
-						want, got,
-					)
-				}
-			}
-			for _, bad := range tt.excludes {
-				if strings.Contains(got, bad) {
-					t.Errorf(
-						"expected output to NOT contain"+
-							" %q, got:\n%s",
-						bad, got,
-					)
-				}
-			}
+			assertContainsAll(t, got, tt.contains)
+			assertContainsNone(t, got, tt.excludes)
 		})
 	}
 }
@@ -277,16 +345,11 @@ func TestIsThinkingOnly(t *testing.T) {
 
 func TestGenerateExportHTML_Structure(t *testing.T) {
 	t.Parallel()
-	started := "2025-01-15T10:00:00Z"
-	first := "Hello"
-	session := &db.Session{
-		ID:           "test-id",
-		Project:      "my-project",
-		Agent:        "claude",
-		MessageCount: 2,
-		StartedAt:    &started,
-		FirstMessage: &first,
-	}
+	session := testSession(func(s *db.Session) {
+		s.Project = "my-project"
+		s.MessageCount = 2
+		s.FirstMessage = dbtest.Ptr("Hello")
+	})
 	msgs := []db.Message{
 		{
 			SessionID: "test-id", Ordinal: 0,
@@ -303,7 +366,7 @@ func TestGenerateExportHTML_Structure(t *testing.T) {
 
 	html := generateExportHTML(session, msgs)
 
-	checks := []string{
+	assertContainsAll(t, html, []string{
 		"<!DOCTYPE html>",
 		"my-project",
 		"Claude",
@@ -314,24 +377,14 @@ func TestGenerateExportHTML_Structure(t *testing.T) {
 		"Hi! How can I help?",
 		"2025-01-15 10:00:00",
 		"2025-01-15 10:00:05",
-	}
-	for _, want := range checks {
-		if !strings.Contains(html, want) {
-			t.Errorf("export HTML missing %q", want)
-		}
-	}
+	})
 }
 
 func TestGenerateExportHTML_ThinkingOnlyClass(t *testing.T) {
 	t.Parallel()
-	started := "2025-01-15T10:00:00Z"
-	session := &db.Session{
-		ID:           "test-id",
-		Project:      "proj",
-		Agent:        "claude",
-		MessageCount: 1,
-		StartedAt:    &started,
-	}
+	session := testSession(func(s *db.Session) {
+		s.MessageCount = 1
+	})
 	msgs := []db.Message{
 		{
 			SessionID: "test-id", Ordinal: 0,
@@ -350,14 +403,10 @@ func TestGenerateExportHTML_ThinkingOnlyClass(t *testing.T) {
 
 func TestGenerateExportHTML_EscapesHostileInput(t *testing.T) {
 	t.Parallel()
-	started := "2025-01-15T10:00:00Z"
-	session := &db.Session{
-		ID:           "test-id",
-		Project:      `<img src=x onerror=alert(1)>`,
-		Agent:        "claude",
-		MessageCount: 1,
-		StartedAt:    &started,
-	}
+	session := testSession(func(s *db.Session) {
+		s.Project = `<img src=x onerror=alert(1)>`
+		s.MessageCount = 1
+	})
 	msgs := []db.Message{
 		{
 			SessionID: "test-id", Ordinal: 0,
@@ -381,14 +430,9 @@ func TestGenerateExportHTML_EscapesHostileInput(t *testing.T) {
 
 func TestGenerateExportHTML_CodexAgent(t *testing.T) {
 	t.Parallel()
-	started := "2025-01-15T10:00:00Z"
-	session := &db.Session{
-		ID:           "test-id",
-		Project:      "proj",
-		Agent:        "codex",
-		MessageCount: 0,
-		StartedAt:    &started,
-	}
+	session := testSession(func(s *db.Session) {
+		s.Agent = "codex"
+	})
 
 	html := generateExportHTML(session, nil)
 	if !strings.Contains(html, "Codex") {
@@ -398,12 +442,9 @@ func TestGenerateExportHTML_CodexAgent(t *testing.T) {
 
 func TestGenerateExportHTML_NilStartedAt(t *testing.T) {
 	t.Parallel()
-	session := &db.Session{
-		ID:           "test-id",
-		Project:      "proj",
-		Agent:        "claude",
-		MessageCount: 0,
-	}
+	session := testSession(func(s *db.Session) {
+		s.StartedAt = nil
+	})
 
 	html := generateExportHTML(session, nil)
 	if !strings.Contains(html, "<!DOCTYPE html>") {
@@ -540,11 +581,9 @@ func TestCreateGist_Success(t *testing.T) {
 
 func TestCreateGist_APIError(t *testing.T) {
 	t.Parallel()
-	ts := httptest.NewServer(
-		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			w.Write([]byte(`{"message":"Validation Failed"}`))
-		}),
+	ts := stubServer(
+		http.StatusUnprocessableEntity,
+		`{"message":"Validation Failed"}`,
 	)
 	defer ts.Close()
 
@@ -562,12 +601,7 @@ func TestCreateGist_APIError(t *testing.T) {
 
 func TestCreateGist_MalformedJSON(t *testing.T) {
 	t.Parallel()
-	ts := httptest.NewServer(
-		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`not json`))
-		}),
-	)
+	ts := stubServer(http.StatusOK, "not json")
 	defer ts.Close()
 
 	_, err := createGistWithURL(
@@ -584,12 +618,7 @@ func TestCreateGist_MalformedJSON(t *testing.T) {
 
 func TestCreateGist_MissingFields(t *testing.T) {
 	t.Parallel()
-	ts := httptest.NewServer(
-		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusCreated)
-			w.Write([]byte(`{}`))
-		}),
-	)
+	ts := stubServer(http.StatusCreated, `{}`)
 	defer ts.Close()
 
 	got, err := createGistWithURL(
@@ -641,11 +670,7 @@ func TestValidateGithubToken_Success(t *testing.T) {
 
 func TestValidateGithubToken_Unauthorized(t *testing.T) {
 	t.Parallel()
-	ts := httptest.NewServer(
-		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusUnauthorized)
-		}),
-	)
+	ts := stubServer(http.StatusUnauthorized, "")
 	defer ts.Close()
 
 	_, err := validateGithubTokenWithURL(context.Background(), ts.URL, "bad-tok")
@@ -659,11 +684,7 @@ func TestValidateGithubToken_Unauthorized(t *testing.T) {
 
 func TestValidateGithubToken_ServerError(t *testing.T) {
 	t.Parallel()
-	ts := httptest.NewServer(
-		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusInternalServerError)
-		}),
-	)
+	ts := stubServer(http.StatusInternalServerError, "")
 	defer ts.Close()
 
 	_, err := validateGithubTokenWithURL(context.Background(), ts.URL, "tok")
@@ -677,12 +698,7 @@ func TestValidateGithubToken_ServerError(t *testing.T) {
 
 func TestValidateGithubToken_MalformedJSON(t *testing.T) {
 	t.Parallel()
-	ts := httptest.NewServer(
-		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{broken`))
-		}),
-	)
+	ts := stubServer(http.StatusOK, "{broken")
 	defer ts.Close()
 
 	_, err := validateGithubTokenWithURL(context.Background(), ts.URL, "tok")
@@ -696,43 +712,29 @@ func TestValidateGithubToken_MalformedJSON(t *testing.T) {
 
 func TestCreateGist_ContextCancelled(t *testing.T) {
 	t.Parallel()
-	// Use a dummy URL since the request won't complete
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Should not be reached if context is cancelled before request
-	}))
+	ts := stubServer(http.StatusOK, "")
 	defer ts.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	cancel()
 
 	_, err := createGistWithURL(
 		ctx,
 		ts.URL, "tok", "f.html", "desc", "content",
 	)
-	if err == nil {
-		t.Fatal("expected error for cancelled context")
-	}
-	if !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "context canceled") {
-		t.Errorf("error should be or contain context.Canceled: %v", err)
-	}
+	assertContextCancelled(t, err)
 }
 
 func TestValidateGithubToken_ContextCancelled(t *testing.T) {
 	t.Parallel()
-	// Use a dummy URL since the request won't complete
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Should not be reached if context is cancelled before request
-	}))
+	ts := stubServer(http.StatusOK, "")
 	defer ts.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	cancel()
 
-	_, err := validateGithubTokenWithURL(ctx, ts.URL, "tok")
-	if err == nil {
-		t.Fatal("expected error for cancelled context")
-	}
-	if !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "context canceled") {
-		t.Errorf("error should be or contain context.Canceled: %v", err)
-	}
+	_, err := validateGithubTokenWithURL(
+		ctx, ts.URL, "tok",
+	)
+	assertContextCancelled(t, err)
 }
