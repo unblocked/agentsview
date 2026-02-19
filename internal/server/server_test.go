@@ -107,6 +107,17 @@ func (te *testEnv) writeProjectFile(
 	return path
 }
 
+// writeSessionFile builds JSONL from a SessionBuilder and writes it
+// as a project file, returning the file path.
+func (te *testEnv) writeSessionFile(
+	t *testing.T,
+	project, filename string,
+	b *testjsonl.SessionBuilder,
+) string {
+	t.Helper()
+	return te.writeProjectFile(t, project, filename, b.String())
+}
+
 // listenAndServe starts the server on a real port and returns the
 // base URL. The server is shut down when the test finishes.
 func (te *testEnv) listenAndServe(t *testing.T) string {
@@ -1120,10 +1131,9 @@ func TestTriggerSync_NonStreaming(t *testing.T) {
 	te := setup(t)
 
 	// Seed a session file so we expect at least one session in the sync result.
-	te.writeProjectFile(t, "test-proj", "sync-test.jsonl",
+	te.writeSessionFile(t, "test-proj", "sync-test.jsonl",
 		testjsonl.NewSessionBuilder().
-			AddClaudeUser(tsZero, "msg").
-			String(),
+			AddClaudeUser(tsZero, "msg"),
 	)
 
 	rec := httptest.NewRecorder()
@@ -1166,10 +1176,9 @@ func (f *flushRecorder) BodyString() string {
 func TestTriggerSync_SSE(t *testing.T) {
 	te := setup(t)
 
-	te.writeProjectFile(t, "test-proj", "sse-test.jsonl",
+	te.writeSessionFile(t, "test-proj", "sse-test.jsonl",
 		testjsonl.NewSessionBuilder().
-			AddClaudeUser(tsZero, "msg").
-			String(),
+			AddClaudeUser(tsZero, "msg"),
 	)
 
 	req := httptest.NewRequest("POST", "/api/v1/sync", nil)
@@ -1183,10 +1192,10 @@ func TestTriggerSync_SSE(t *testing.T) {
 func TestWatchSession_Events(t *testing.T) {
 	te := setup(t)
 
-	content := testjsonl.NewSessionBuilder().
-		AddClaudeUser(tsZero, "initial").
-		String()
-	sessionPath := te.writeProjectFile(t, "watch-proj", "watch-sess.jsonl", content)
+	b := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "initial")
+	content := b.String()
+	sessionPath := te.writeSessionFile(t, "watch-proj", "watch-sess.jsonl", b)
 
 	engine := sync.NewEngine(
 		te.db, te.claudeDir,
@@ -1229,10 +1238,10 @@ func TestWatchSession_Events(t *testing.T) {
 func TestWatchSession_FileDisappearAndResolve(t *testing.T) {
 	te := setup(t)
 
-	content := testjsonl.NewSessionBuilder().
-		AddClaudeUser(tsZero, "initial").
-		String()
-	sessionPath := te.writeProjectFile(t, "vanish-proj", "vanish-sess.jsonl", content)
+	b := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "initial")
+	content := b.String()
+	sessionPath := te.writeSessionFile(t, "vanish-proj", "vanish-sess.jsonl", b)
 
 	engine := sync.NewEngine(
 		te.db, te.claudeDir,
@@ -1299,10 +1308,9 @@ func TestTriggerSync_SSEEvents(t *testing.T) {
 	te := setup(t)
 
 	for _, name := range []string{"a", "b"} {
-		te.writeProjectFile(t, "sse-proj", name+".jsonl",
+		te.writeSessionFile(t, "sse-proj", name+".jsonl",
 			testjsonl.NewSessionBuilder().
-				AddClaudeUser(tsZero, fmt.Sprintf("msg %s", name)).
-				String(),
+				AddClaudeUser(tsZero, fmt.Sprintf("msg %s", name)),
 		)
 	}
 
