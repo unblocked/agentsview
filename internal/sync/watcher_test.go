@@ -13,25 +13,31 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// Helper: startTestWatcher encapsulates watcher setup and lifecycle
-func startTestWatcher(t *testing.T, onChange func([]string)) (*Watcher, string) {
+// startTestWatcherNoCleanup sets up a watcher without registering
+// t.Cleanup(w.Stop), for tests that explicitly exercise Stop().
+func startTestWatcherNoCleanup(
+	t *testing.T, onChange func([]string),
+) (*Watcher, string) {
 	t.Helper()
 	dir := t.TempDir()
-
 	w, err := NewWatcher(50*time.Millisecond, onChange)
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
-
 	if err := w.WatchRecursive(dir); err != nil {
 		t.Fatalf("WatchRecursive: %v", err)
 	}
 	w.Start()
+	return w, dir
+}
 
-	t.Cleanup(func() {
-		w.Stop()
-	})
-
+// startTestWatcher encapsulates watcher setup and lifecycle.
+func startTestWatcher(
+	t *testing.T, onChange func([]string),
+) (*Watcher, string) {
+	t.Helper()
+	w, dir := startTestWatcherNoCleanup(t, onChange)
+	t.Cleanup(func() { w.Stop() })
 	return w, dir
 }
 
@@ -45,11 +51,33 @@ func waitWithTimeout(t *testing.T, ch <-chan struct{}, timeout time.Duration, ms
 	}
 }
 
-// Helper: newMockWatcher creates a Watcher struct for internal unit tests
-func newMockWatcher(debounce time.Duration) *Watcher {
+// pollUntil polls fn with the given interval until it returns true
+// or the timeout expires.
+func pollUntil(
+	t *testing.T,
+	timeout, interval time.Duration,
+	msg string,
+	fn func() bool,
+) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if fn() {
+			return
+		}
+		time.Sleep(interval)
+	}
+	t.Fatal(msg)
+}
+
+// newMockWatcher creates a Watcher struct for internal unit tests.
+func newMockWatcher(
+	debounce time.Duration, onChange func([]string),
+) *Watcher {
 	return &Watcher{
 		debounce: debounce,
 		pending:  make(map[string]time.Time),
+		onChange: onChange,
 	}
 }
 
@@ -128,19 +156,12 @@ func TestWatcherAutoWatchesNewDirs(t *testing.T) {
 		t.Fatalf("Mkdir: %v", err)
 	}
 
-	// Poll until the new directory is being watched
-	deadline := time.Now().Add(5 * time.Second)
-	watched := false
-	for time.Now().Before(deadline) {
-		if slices.Contains(w.watcher.WatchList(), subdir) {
-			watched = true
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !watched {
-		t.Fatal("timed out waiting for watcher to add new directory")
-	}
+	pollUntil(t, 5*time.Second, 10*time.Millisecond,
+		"timed out waiting for watcher to add new directory",
+		func() bool {
+			return slices.Contains(w.watcher.WatchList(), subdir)
+		},
+	)
 
 	path := filepath.Join(subdir, "nested.jsonl")
 	if err := os.WriteFile(
@@ -153,20 +174,7 @@ func TestWatcherAutoWatchesNewDirs(t *testing.T) {
 }
 
 func TestWatcherStopIsClean(t *testing.T) {
-	dir := t.TempDir()
-
-	// We use manual setup here because we explicitly test Stop() behavior
-	// and want to avoid the double-Stop complexity if possible, although
-	// startTestWatcher handles it. But explicit is better for this specific test.
-	w, err := NewWatcher(50*time.Millisecond, func(_ []string) {})
-	if err != nil {
-		t.Fatalf("NewWatcher: %v", err)
-	}
-
-	if err := w.WatchRecursive(dir); err != nil {
-		t.Fatalf("WatchRecursive: %v", err)
-	}
-	w.Start()
+	w, _ := startTestWatcherNoCleanup(t, func(_ []string) {})
 
 	stopped := make(chan struct{})
 	go func() {
@@ -178,31 +186,16 @@ func TestWatcherStopIsClean(t *testing.T) {
 }
 
 func TestWatcherStopIdempotency(t *testing.T) {
-	dir := t.TempDir()
-	w, err := NewWatcher(50*time.Millisecond, func(_ []string) {})
-	if err != nil {
-		t.Fatalf("NewWatcher: %v", err)
-	}
-	if err := w.WatchRecursive(dir); err != nil {
-		t.Fatalf("WatchRecursive: %v", err)
-	}
-	w.Start()
+	w, _ := startTestWatcherNoCleanup(t, func(_ []string) {})
 
 	// 1. Sequential double stop
 	w.Stop()
 	w.Stop()
 
 	// 2. Concurrent stop attempts
-	// Reset watcher for concurrent test
-	dir2 := t.TempDir()
-	w2, err := NewWatcher(50*time.Millisecond, func(_ []string) {})
-	if err != nil {
-		t.Fatalf("NewWatcher: %v", err)
-	}
-	if err := w2.WatchRecursive(dir2); err != nil {
-		t.Fatalf("WatchRecursive: %v", err)
-	}
-	w2.Start()
+	w2, dir2 := startTestWatcherNoCleanup(
+		t, func(_ []string) {},
+	)
 
 	// Create activity so the watcher has events to process during stop
 	stressPath := filepath.Join(dir2, "stress.txt")
@@ -213,15 +206,10 @@ func TestWatcherStopIdempotency(t *testing.T) {
 	// Wait until the watcher loop has consumed the fsnotify event.
 	// Without this, Stop() could fire before the event is processed,
 	// meaning the test never exercises "active watch during stop".
-	deadline := time.After(5 * time.Second)
-	for getPendingCount(w2) == 0 {
-		select {
-		case <-deadline:
-			t.Fatal("timed out waiting for watcher to observe stress write")
-		default:
-			time.Sleep(5 * time.Millisecond)
-		}
-	}
+	pollUntil(t, 5*time.Second, 5*time.Millisecond,
+		"timed out waiting for watcher to observe stress write",
+		func() bool { return getPendingCount(w2) > 0 },
+	)
 
 	var wg sync.WaitGroup
 	for range 10 {
@@ -240,7 +228,7 @@ func TestWatcherStopIdempotency(t *testing.T) {
 }
 
 func TestHandleEventIgnoresNonWriteCreate(t *testing.T) {
-	w := newMockWatcher(0)
+	w := newMockWatcher(0, nil)
 
 	w.handleEvent(fsnotify.Event{
 		Name: "file.txt", Op: fsnotify.Chmod,
@@ -258,7 +246,7 @@ func TestHandleEventIgnoresNonWriteCreate(t *testing.T) {
 }
 
 func TestHandleEventRecordsPendingOnWrite(t *testing.T) {
-	w := newMockWatcher(0)
+	w := newMockWatcher(0, nil)
 
 	w.handleEvent(fsnotify.Event{
 		Name: "/tmp/test.jsonl", Op: fsnotify.Write,
@@ -271,8 +259,9 @@ func TestHandleEventRecordsPendingOnWrite(t *testing.T) {
 
 func TestFlushRespectsDebouncePeriod(t *testing.T) {
 	var called atomic.Bool
-	w := newMockWatcher(100 * time.Millisecond)
-	w.onChange = func(_ []string) { called.Store(true) }
+	w := newMockWatcher(100*time.Millisecond,
+		func(_ []string) { called.Store(true) },
+	)
 
 	setPending(w, "/tmp/recent", time.Now())
 
@@ -289,10 +278,9 @@ func TestFlushRespectsDebouncePeriod(t *testing.T) {
 
 func TestFlushCallsOnChangeAfterDebounce(t *testing.T) {
 	var gotPaths []string
-	w := newMockWatcher(10 * time.Millisecond)
-	w.onChange = func(paths []string) {
-		gotPaths = paths
-	}
+	w := newMockWatcher(10*time.Millisecond,
+		func(paths []string) { gotPaths = paths },
+	)
 
 	setPending(w, "/tmp/old", time.Now().Add(-50*time.Millisecond))
 
@@ -309,8 +297,9 @@ func TestFlushCallsOnChangeAfterDebounce(t *testing.T) {
 
 func TestFlushNoopWhenEmpty(t *testing.T) {
 	var called atomic.Bool
-	w := newMockWatcher(10 * time.Millisecond)
-	w.onChange = func(_ []string) { called.Store(true) }
+	w := newMockWatcher(10*time.Millisecond,
+		func(_ []string) { called.Store(true) },
+	)
 
 	w.flush()
 
