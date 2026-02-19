@@ -125,9 +125,11 @@ func (te *testEnv) listenAndServe(t *testing.T) string {
 	port := server.FindAvailablePort(40000)
 	te.srv.SetPort(port)
 
-	serverErr := make(chan error, 1)
+	var serveErr error
+	done := make(chan struct{})
 	go func() {
-		serverErr <- te.srv.ListenAndServe()
+		serveErr = te.srv.ListenAndServe()
+		close(done)
 	}()
 
 	// Wait for the port to accept connections.
@@ -149,9 +151,9 @@ func (te *testEnv) listenAndServe(t *testing.T) string {
 	}
 	if !ready {
 		select {
-		case err := <-serverErr:
+		case <-done:
 			t.Fatalf(
-				"server failed to start: %v", err,
+				"server failed to start: %v", serveErr,
 			)
 		default:
 		}
@@ -166,13 +168,18 @@ func (te *testEnv) listenAndServe(t *testing.T) string {
 			context.Background(), 5*time.Second,
 		)
 		defer cancel()
-		if err := te.srv.Shutdown(ctx); err != nil {
+		if err := te.srv.Shutdown(ctx); err != nil &&
+			err != http.ErrServerClosed {
 			t.Errorf("server shutdown error: %v", err)
 		}
 		select {
-		case err := <-serverErr:
-			if err != nil && err != http.ErrServerClosed {
-				t.Errorf("server exited with error: %v", err)
+		case <-done:
+			if serveErr != nil &&
+				serveErr != http.ErrServerClosed {
+				t.Errorf(
+					"server exited with error: %v",
+					serveErr,
+				)
 			}
 		case <-time.After(5 * time.Second):
 			t.Error("timed out waiting for server goroutine")
