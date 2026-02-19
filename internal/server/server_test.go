@@ -101,6 +101,7 @@ func (te *testEnv) writeProjectFile(t *testing.T, project, filename, content str
 
 func (te *testEnv) seedSession(
 	t *testing.T, id, project string, msgCount int,
+	opts ...func(*db.Session),
 ) {
 	t.Helper()
 	dbtest.SeedSession(t, te.db, id, project, func(s *db.Session) {
@@ -109,7 +110,19 @@ func (te *testEnv) seedSession(
 		s.StartedAt = dbtest.Ptr(tsSeed)
 		s.EndedAt = dbtest.Ptr(tsSeedEnd)
 		s.FirstMessage = dbtest.Ptr("Hello world")
+		for _, opt := range opts {
+			opt(s)
+		}
 	})
+}
+
+func (te *testEnv) seedSessionWithMessages(
+	t *testing.T, id, project string, msgCount int,
+	opts ...func(*db.Session),
+) {
+	t.Helper()
+	te.seedSession(t, id, project, msgCount, opts...)
+	te.seedMessages(t, id, msgCount)
 }
 
 func (te *testEnv) seedMessages(

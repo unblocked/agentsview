@@ -1,7 +1,6 @@
 package server_test
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,56 +9,32 @@ import (
 	"github.com/wesm/agentsview/internal/dbtest"
 )
 
+// Analytics date range used across analytics tests.
+const analyticsRange = "?from=2024-06-01&to=2024-06-03"
+
 // seedAnalyticsEnv populates the test env with sessions and
 // messages suitable for analytics endpoint tests.
 func seedAnalyticsEnv(t *testing.T, te *testEnv) {
 	t.Helper()
 
-	sessions := []struct {
-		id      string
-		project string
-		agent   string
-		started string
-		msgs    int
-	}{
+	type entry struct {
+		id, project, agent, started string
+		msgs                        int
+	}
+	for _, s := range []entry{
 		{"a1", "alpha", "claude", "2024-06-01T09:00:00Z", 10},
 		{"a2", "alpha", "codex", "2024-06-01T14:00:00Z", 20},
 		{"b1", "beta", "claude", "2024-06-02T10:00:00Z", 30},
-	}
-
-	for _, s := range sessions {
+	} {
 		started := s.started
-		dbtest.SeedSession(t, te.db, s.id, s.project,
+		te.seedSessionWithMessages(t, s.id, s.project, s.msgs,
 			func(sess *db.Session) {
-				sess.Machine = "test"
 				sess.Agent = s.agent
-				sess.MessageCount = s.msgs
 				sess.StartedAt = &started
 				sess.EndedAt = &started
 				sess.FirstMessage = dbtest.Ptr("Hello")
 			},
 		)
-
-		msgs := make([]db.Message, s.msgs)
-		for i := range s.msgs {
-			role := "user"
-			if i%2 == 1 {
-				role = "assistant"
-			}
-			msgs[i] = db.Message{
-				SessionID:     s.id,
-				Ordinal:       i,
-				Role:          role,
-				Content:       fmt.Sprintf("msg %d", i),
-				ContentLength: 5,
-				Timestamp:     s.started,
-			}
-		}
-		if err := te.db.ReplaceSessionMessages(
-			s.id, msgs,
-		); err != nil {
-			t.Fatalf("seeding messages for %s: %v", s.id, err)
-		}
 	}
 }
 
@@ -69,7 +44,7 @@ func TestAnalyticsSummary(t *testing.T) {
 
 	t.Run("OK", func(t *testing.T) {
 		w := te.get(t,
-			"/api/v1/analytics/summary?from=2024-06-01&to=2024-06-03&timezone=UTC")
+			"/api/v1/analytics/summary"+analyticsRange+"&timezone=UTC")
 		assertStatus(t, w, http.StatusOK)
 
 		resp := decode[db.AnalyticsSummary](t, w)
@@ -140,17 +115,17 @@ func TestAnalyticsErrorRedaction(t *testing.T) {
 
 	// Valid request should succeed
 	w := te.get(t,
-		"/api/v1/analytics/summary?from=2024-06-01&to=2024-06-03")
+		"/api/v1/analytics/summary"+analyticsRange)
 	assertStatus(t, w, http.StatusOK)
 
 	// Force a DB error by closing the database
 	te.db.Close()
 
 	endpoints := []string{
-		"/api/v1/analytics/summary?from=2024-06-01&to=2024-06-03",
-		"/api/v1/analytics/activity?from=2024-06-01&to=2024-06-03",
-		"/api/v1/analytics/heatmap?from=2024-06-01&to=2024-06-03",
-		"/api/v1/analytics/projects?from=2024-06-01&to=2024-06-03",
+		"/api/v1/analytics/summary" + analyticsRange,
+		"/api/v1/analytics/activity" + analyticsRange,
+		"/api/v1/analytics/heatmap" + analyticsRange,
+		"/api/v1/analytics/projects" + analyticsRange,
 	}
 	for _, ep := range endpoints {
 		t.Run(ep, func(t *testing.T) {
@@ -213,7 +188,7 @@ func TestAnalyticsActivity(t *testing.T) {
 
 	t.Run("DayGranularity", func(t *testing.T) {
 		w := te.get(t,
-			"/api/v1/analytics/activity?from=2024-06-01&to=2024-06-03&granularity=day")
+			"/api/v1/analytics/activity"+analyticsRange+"&granularity=day")
 		assertStatus(t, w, http.StatusOK)
 
 		resp := decode[db.ActivityResponse](t, w)
@@ -228,13 +203,13 @@ func TestAnalyticsActivity(t *testing.T) {
 
 	t.Run("WeekGranularity", func(t *testing.T) {
 		w := te.get(t,
-			"/api/v1/analytics/activity?from=2024-06-01&to=2024-06-03&granularity=week")
+			"/api/v1/analytics/activity"+analyticsRange+"&granularity=week")
 		assertStatus(t, w, http.StatusOK)
 	})
 
 	t.Run("DefaultGranularity", func(t *testing.T) {
 		w := te.get(t,
-			"/api/v1/analytics/activity?from=2024-06-01&to=2024-06-03")
+			"/api/v1/analytics/activity"+analyticsRange)
 		assertStatus(t, w, http.StatusOK)
 
 		resp := decode[db.ActivityResponse](t, w)
@@ -257,7 +232,7 @@ func TestAnalyticsHeatmap(t *testing.T) {
 
 	t.Run("MessageMetric", func(t *testing.T) {
 		w := te.get(t,
-			"/api/v1/analytics/heatmap?from=2024-06-01&to=2024-06-03&metric=messages")
+			"/api/v1/analytics/heatmap"+analyticsRange+"&metric=messages")
 		assertStatus(t, w, http.StatusOK)
 
 		resp := decode[db.HeatmapResponse](t, w)
@@ -272,7 +247,7 @@ func TestAnalyticsHeatmap(t *testing.T) {
 
 	t.Run("SessionMetric", func(t *testing.T) {
 		w := te.get(t,
-			"/api/v1/analytics/heatmap?from=2024-06-01&to=2024-06-03&metric=sessions")
+			"/api/v1/analytics/heatmap"+analyticsRange+"&metric=sessions")
 		assertStatus(t, w, http.StatusOK)
 
 		resp := decode[db.HeatmapResponse](t, w)
@@ -283,7 +258,7 @@ func TestAnalyticsHeatmap(t *testing.T) {
 
 	t.Run("DefaultMetric", func(t *testing.T) {
 		w := te.get(t,
-			"/api/v1/analytics/heatmap?from=2024-06-01&to=2024-06-03")
+			"/api/v1/analytics/heatmap"+analyticsRange)
 		assertStatus(t, w, http.StatusOK)
 
 		resp := decode[db.HeatmapResponse](t, w)
@@ -306,7 +281,7 @@ func TestAnalyticsProjects(t *testing.T) {
 
 	t.Run("OK", func(t *testing.T) {
 		w := te.get(t,
-			"/api/v1/analytics/projects?from=2024-06-01&to=2024-06-03")
+			"/api/v1/analytics/projects"+analyticsRange)
 		assertStatus(t, w, http.StatusOK)
 
 		resp := decode[db.ProjectsAnalyticsResponse](t, w)
@@ -327,7 +302,7 @@ func TestAnalyticsProjects(t *testing.T) {
 
 	t.Run("MachineFilter", func(t *testing.T) {
 		w := te.get(t,
-			"/api/v1/analytics/projects?from=2024-06-01&to=2024-06-03&machine=nonexistent")
+			"/api/v1/analytics/projects"+analyticsRange+"&machine=nonexistent")
 		assertStatus(t, w, http.StatusOK)
 
 		resp := decode[db.ProjectsAnalyticsResponse](t, w)
