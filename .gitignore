@@ -12,8 +12,11 @@ frontend/playwright-report/
 # Embedded frontend build output
 internal/web/dist/
 
-# Build artifacts
+# Test/build artifacts
 /dist/
+*.out
+coverage.out
+*.test
 
 # OS files
 .DS_Store
@@ -25,6 +28,12 @@ Thumbs.db
 *~
 .idea/
 .vscode/
+
+# Build caches
+.gocache
+.cache
+.gomodcache/
+.gopath/
 
 # Local data
 data/

@@ -10,7 +10,7 @@ LDFLAGS := -X main.version=$(VERSION) \
 
 LDFLAGS_RELEASE := $(LDFLAGS) -s -w
 
-.PHONY: build build-release install frontend frontend-dev dev test test-short e2e vet lint tidy clean release release-darwin-arm64 release-darwin-amd64 release-linux-amd64 help
+.PHONY: build build-release install frontend frontend-dev dev test test-short e2e vet lint tidy clean release release-darwin-arm64 release-darwin-amd64 release-linux-amd64 install-hooks help
 
 # Build the binary (debug, with embedded frontend)
 build: frontend
@@ -111,6 +111,17 @@ release-linux-amd64: frontend
 		-ldflags="$(LDFLAGS_RELEASE)" -trimpath \
 		-o dist/agentsv-linux-amd64 ./cmd/agentsv
 
+# Install pre-commit hook, resolving the hooks directory via git so
+# this works in both normal repos and linked worktrees
+install-hooks:
+	@hooks_rel=$$(git rev-parse --git-path hooks) && \
+		hooks_dir=$$(cd "$$(dirname "$$hooks_rel")" && echo "$$PWD/$$(basename "$$hooks_rel")") && \
+		git config --local core.hooksPath "$$hooks_dir" && \
+		mkdir -p "$$hooks_dir" && \
+		cp .githooks/pre-commit "$$hooks_dir/pre-commit" && \
+		chmod +x "$$hooks_dir/pre-commit" && \
+		echo "Installed pre-commit hook to $$hooks_dir/pre-commit"
+
 # Show help
 help:
 	@echo "agentsv build targets:"
@@ -132,3 +143,4 @@ help:
 	@echo ""
 	@echo "  release        - Release build for current platform"
 	@echo "  clean          - Remove build artifacts"
+	@echo "  install-hooks  - Install pre-commit git hooks"
