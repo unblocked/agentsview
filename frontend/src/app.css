@@ -1,0 +1,173 @@
+/* Reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* Light theme (default) — warm cream professional */
+:root {
+  --bg-primary: #faf8f5;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #f5f2ee;
+  --bg-inset: #f0ede8;
+  --border-default: #e5e0db;
+  --border-muted: #ece8e3;
+  --text-primary: #2c2825;
+  --text-secondary: #5c5650;
+  --text-muted: #8c8580;
+  --accent-blue: #2563eb;
+  --accent-purple: #7c3aed;
+  --accent-amber: #d97706;
+  --accent-green: #059669;
+  --accent-red: #dc2626;
+  --user-bg: #f0f4ff;
+  --assistant-bg: #f5f0ff;
+  --thinking-bg: #faf5ff;
+  --tool-bg: #fff8f0;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas,
+    monospace;
+  --viewport-indicator: rgba(0, 0, 0, 0.08);
+  --overlay-bg: rgba(0, 0, 0, 0.3);
+  color-scheme: light;
+}
+
+/* Dark theme */
+:root.dark {
+  --bg-primary: #0a0a0a;
+  --bg-surface: #141414;
+  --bg-surface-hover: #1a1a1a;
+  --bg-inset: #0e0e0e;
+  --border-default: #262626;
+  --border-muted: #1e1e1e;
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0a0;
+  --text-muted: #666666;
+  --accent-blue: #60a5fa;
+  --accent-purple: #a78bfa;
+  --accent-amber: #fbbf24;
+  --accent-green: #34d399;
+  --accent-red: #f87171;
+  --user-bg: #0f1724;
+  --assistant-bg: #130f24;
+  --thinking-bg: #1a1028;
+  --tool-bg: #1a1508;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --viewport-indicator: rgba(255, 255, 255, 0.08);
+  --overlay-bg: rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Selection */
+::selection {
+  background: var(--accent-blue);
+  color: white;
+}
+
+/* Focus visible */
+:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 1px;
+}
+
+/* Button reset */
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Input reset */
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* Code */
+code,
+pre {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* Utility: visually hidden */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Mark tag (search highlights) */
+mark {
+  background: var(--accent-amber);
+  color: var(--text-primary);
+  border-radius: 2px;
+  padding: 0 2px;
+}

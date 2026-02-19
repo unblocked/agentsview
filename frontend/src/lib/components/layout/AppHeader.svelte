@@ -1,0 +1,320 @@
+<script lang="ts">
+  import { ui } from "../../stores/ui.svelte.js";
+  import { sessions } from "../../stores/sessions.svelte.js";
+  import { sync } from "../../stores/sync.svelte.js";
+  import { router } from "../../stores/router.svelte.js";
+  import { getExportUrl } from "../../api/client.js";
+
+  const isMac = navigator.platform.toUpperCase().includes("MAC");
+  const modKey = isMac ? "Cmd" : "Ctrl";
+
+  function handleProjectChange(e: Event) {
+    const select = e.target as HTMLSelectElement;
+    sessions.setProjectFilter(select.value);
+  }
+
+  function handleExport() {
+    if (sessions.activeSessionId) {
+      window.open(
+        getExportUrl(sessions.activeSessionId),
+        "_blank",
+      );
+    }
+  }
+
+  const isSessionsView = $derived(router.route === "sessions");
+  const isAnalyticsView = $derived(router.route === "analytics");
+</script>
+
+<header class="header">
+  <div class="header-left">
+    <span class="header-title">Agent Session Viewer</span>
+
+    <nav class="header-nav">
+      <button
+        class="nav-tab"
+        class:active={isSessionsView}
+        onclick={() => router.navigate("sessions")}
+      >
+        Sessions
+      </button>
+      <button
+        class="nav-tab"
+        class:active={isAnalyticsView}
+        onclick={() => router.navigate("analytics")}
+      >
+        Analytics
+      </button>
+    </nav>
+
+    {#if isSessionsView}
+      <select
+        class="project-select"
+        value={sessions.projectFilter}
+        onchange={handleProjectChange}
+      >
+        <option value="">All Projects</option>
+        {#each sessions.projects as project}
+          <option value={project.name}>
+            {project.name} ({project.session_count})
+          </option>
+        {/each}
+      </select>
+    {/if}
+  </div>
+
+  {#if isSessionsView}
+    <button
+      class="search-hint"
+      onclick={() => ui.openCommandPalette()}
+      title="Search sessions ({modKey}+K)"
+    >
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85zm-5.44.656a5 5 0 110-10 5 5 0 010 10z"/>
+      </svg>
+      <span class="search-hint-text">Search sessions...</span>
+      <kbd class="search-hint-kbd">{modKey}+K</kbd>
+    </button>
+  {/if}
+
+  <div class="header-right">
+    {#if isSessionsView}
+      <button
+        class="header-btn"
+        class:active={ui.showThinking}
+        onclick={() => ui.toggleThinking()}
+        title="Toggle thinking blocks (t)"
+        aria-label="Toggle thinking blocks"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zM8 4a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 008 4zm0 6a.75.75 0 100 1.5.75.75 0 000-1.5z"/>
+        </svg>
+      </button>
+
+      <button
+        class="header-btn"
+        onclick={() => ui.toggleSort()}
+        title="Toggle sort order (o)"
+        aria-label="Toggle sort order"
+      >
+        {#if ui.sortNewestFirst}
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M3.5 3a.5.5 0 01.5.5v8.793l2.146-2.147a.5.5 0 01.708.708l-3 3a.5.5 0 01-.708 0l-3-3a.5.5 0 01.708-.708L3 12.293V3.5a.5.5 0 01.5-.5zm4 0h7a.5.5 0 010 1h-7a.5.5 0 010-1zm0 3h5a.5.5 0 010 1h-5a.5.5 0 010-1zm0 3h3a.5.5 0 010 1h-3a.5.5 0 010-1z"/>
+          </svg>
+        {:else}
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M3.5 13a.5.5 0 00.5-.5V3.707l2.146 2.147a.5.5 0 00.708-.708l-3-3a.5.5 0 00-.708 0l-3 3a.5.5 0 00.708.708L3 3.707V12.5a.5.5 0 00.5.5zm4-10h3a.5.5 0 010 1h-3a.5.5 0 010-1zm0 3h5a.5.5 0 010 1h-5a.5.5 0 010-1zm0 3h7a.5.5 0 010 1h-7a.5.5 0 010-1z"/>
+          </svg>
+        {/if}
+      </button>
+
+      <button
+        class="header-btn"
+        onclick={handleExport}
+        disabled={!sessions.activeSessionId}
+        title="Export session (e)"
+        aria-label="Export session"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M4.406 1.342A5.53 5.53 0 018 0c2.69 0 4.923 2 5.166 4.579C14.758 4.804 16 6.137 16 7.773 16 9.569 14.502 11 12.687 11H10a.5.5 0 010-1h2.688C13.979 10 15 8.988 15 7.773c0-1.216-1.02-2.228-2.313-2.228h-.5v-.5C12.188 2.825 10.328 1 8 1a4.53 4.53 0 00-2.941 1.1c-.757.652-1.153 1.438-1.153 2.055v.448l-.445.049C2.064 4.805 1 5.952 1 7.318 1 8.785 2.23 10 3.781 10H6a.5.5 0 010 1H3.781C1.708 11 0 9.366 0 7.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383z"/>
+          <path d="M7.646 4.146a.5.5 0 01.708 0l3 3a.5.5 0 01-.708.708L8.5 5.707V14.5a.5.5 0 01-1 0V5.707L5.354 7.854a.5.5 0 11-.708-.708l3-3z"/>
+        </svg>
+      </button>
+
+      <button
+        class="header-btn"
+        onclick={() => ui.openPublishModal()}
+        disabled={!sessions.activeSessionId}
+        title="Publish to Gist (p)"
+        aria-label="Publish to Gist"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M3.5 13h9a.5.5 0 010 1h-9a.5.5 0 010-1zm4.854-9.354a.5.5 0 00-.708 0l-3 3a.5.5 0 10.708.708L7.5 5.207V11.5a.5.5 0 001 0V5.207l2.146 2.147a.5.5 0 00.708-.708l-3-3z"/>
+        </svg>
+      </button>
+    {/if}
+
+    <button
+      class="header-btn"
+      class:syncing={sync.syncing}
+      onclick={() => sync.triggerSync(() => sessions.load())}
+      disabled={sync.syncing}
+      title="Sync sessions (r)"
+      aria-label="Sync sessions"
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M8 3a5 5 0 00-4.546 2.914.5.5 0 01-.908-.418A6 6 0 0114 8a.5.5 0 01-1 0 5 5 0 00-5-5zm4.546 7.086a.5.5 0 01.908.418A6 6 0 012 8a.5.5 0 011 0 5 5 0 005 5 5 5 0 004.546-2.914z"/>
+      </svg>
+    </button>
+
+    <button
+      class="header-btn"
+      onclick={() => ui.toggleTheme()}
+      title="Toggle theme"
+      aria-label="Toggle theme"
+    >
+      {#if ui.theme === "light"}
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M6 .278a.768.768 0 01.08.858 7.208 7.208 0 00-.878 3.46c0 4.021 3.278 7.277 7.318 7.277.527 0 1.04-.055 1.533-.16a.787.787 0 01.81.316.733.733 0 01-.031.893A8.349 8.349 0 018.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.752.752 0 016 .278z"/>
+        </svg>
+      {:else}
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8 12a4 4 0 100-8 4 4 0 000 8zM8 0a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2A.5.5 0 018 0zm0 13a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2A.5.5 0 018 13zm8-5a.5.5 0 01-.5.5h-2a.5.5 0 010-1h2A.5.5 0 0116 8zM3 8a.5.5 0 01-.5.5h-2a.5.5 0 010-1h2A.5.5 0 013 8zm10.657-5.657a.5.5 0 010 .707l-1.414 1.414a.5.5 0 11-.707-.707l1.414-1.414a.5.5 0 01.707 0zm-9.193 9.193a.5.5 0 010 .707L3.05 13.657a.5.5 0 01-.707-.707l1.414-1.414a.5.5 0 01.707 0zm9.193 2.121a.5.5 0 01-.707 0l-1.414-1.414a.5.5 0 01.707-.707l1.414 1.414a.5.5 0 010 .707zM4.464 4.465a.5.5 0 01-.707 0L2.343 3.05a.5.5 0 01.707-.707l1.414 1.414a.5.5 0 010 .708z"/>
+        </svg>
+      {/if}
+    </button>
+
+    <button
+      class="header-btn"
+      onclick={() => ui.openShortcutsModal()}
+      title="Keyboard shortcuts (?)"
+    >
+      ?
+    </button>
+  </div>
+</header>
+
+<style>
+  .header {
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-default);
+    flex-shrink: 0;
+    gap: 8px;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .header-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
+
+  .header-nav {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .nav-tab {
+    height: 24px;
+    padding: 0 8px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+    white-space: nowrap;
+  }
+
+  .nav-tab:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-secondary);
+  }
+
+  .nav-tab.active {
+    background: var(--bg-inset);
+    color: var(--text-primary);
+  }
+
+  .project-select {
+    height: 24px;
+    padding: 0 6px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    max-width: 200px;
+  }
+
+  .project-select:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+  }
+
+  .search-hint {
+    height: 24px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.1s;
+  }
+
+  .search-hint:hover {
+    border-color: var(--text-muted);
+  }
+
+  .search-hint-text {
+    color: var(--text-muted);
+  }
+
+  .search-hint-kbd {
+    font-size: 10px;
+    padding: 0 4px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    background: var(--bg-surface);
+    font-family: var(--font-sans);
+    line-height: 16px;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .header-btn {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    transition: background 0.1s, color 0.1s;
+  }
+
+  .header-btn:hover:not(:disabled) {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+  }
+
+  .header-btn.active {
+    color: var(--accent-purple);
+  }
+
+  .header-btn.syncing {
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+</style>

@@ -1,0 +1,93 @@
+package server
+
+import (
+	"errors"
+	"net/http"
+
+	"github.com/wesm/agentsview/internal/db"
+)
+
+func (s *Server) handleListSessions(
+	w http.ResponseWriter, r *http.Request,
+) {
+	q := r.URL.Query()
+
+	limit, ok := parseIntParam(w, r, "limit")
+	if !ok {
+		return
+	}
+	limit = clampLimit(limit, db.DefaultSessionLimit, db.MaxSessionLimit)
+
+	minMsgs, ok := parseIntParam(w, r, "min_messages")
+	if !ok {
+		return
+	}
+	maxMsgs, ok := parseIntParam(w, r, "max_messages")
+	if !ok {
+		return
+	}
+
+	date := q.Get("date")
+	dateFrom := q.Get("date_from")
+	dateTo := q.Get("date_to")
+
+	for _, d := range []string{date, dateFrom, dateTo} {
+		if d != "" && !isValidDate(d) {
+			writeError(w, http.StatusBadRequest,
+				"invalid date format: use YYYY-MM-DD")
+			return
+		}
+	}
+	if dateFrom != "" && dateTo != "" && dateFrom > dateTo {
+		writeError(w, http.StatusBadRequest,
+			"date_from must not be after date_to")
+		return
+	}
+
+	filter := db.SessionFilter{
+		Project:     q.Get("project"),
+		Machine:     q.Get("machine"),
+		Agent:       q.Get("agent"),
+		Date:        date,
+		DateFrom:    dateFrom,
+		DateTo:      dateTo,
+		MinMessages: minMsgs,
+		MaxMessages: maxMsgs,
+		Cursor:      q.Get("cursor"),
+		Limit:       limit,
+	}
+
+	page, err := s.db.ListSessions(r.Context(), filter)
+	if err != nil {
+		if handleContextError(w, err) {
+			return
+		}
+		if errors.Is(err, db.ErrInvalidCursor) {
+			writeError(w, http.StatusBadRequest, "invalid cursor")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, page)
+}
+
+func (s *Server) handleGetSession(
+	w http.ResponseWriter, r *http.Request,
+) {
+	id := r.PathValue("id")
+	session, err := s.db.GetSession(r.Context(), id)
+	if err != nil {
+		if handleContextError(w, err) {
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if session == nil {
+		writeError(w, http.StatusNotFound, "session not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}

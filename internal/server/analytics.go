@@ -1,0 +1,189 @@
+package server
+
+import (
+	"log"
+	"net/http"
+	"time"
+
+	"github.com/wesm/agentsview/internal/db"
+)
+
+// isValidDate checks that s is a well-formed YYYY-MM-DD string.
+func isValidDate(s string) bool {
+	_, err := time.Parse("2006-01-02", s)
+	return err == nil
+}
+
+// defaultDateRange returns (from, to) defaulting to the last
+// 30 days if not provided.
+func defaultDateRange(
+	from, to string,
+) (string, string) {
+	now := time.Now().UTC()
+	if to == "" {
+		to = now.Format("2006-01-02")
+	}
+	if from == "" {
+		t, err := time.Parse("2006-01-02", to)
+		if err != nil {
+			t = now
+		}
+		from = t.AddDate(0, 0, -30).Format("2006-01-02")
+	}
+	return from, to
+}
+
+// parseAnalyticsFilter extracts the common analytics filter
+// params from a request.
+func parseAnalyticsFilter(
+	w http.ResponseWriter, r *http.Request,
+) (db.AnalyticsFilter, bool) {
+	q := r.URL.Query()
+	tz := q.Get("timezone")
+	if tz == "" {
+		tz = "UTC"
+	}
+	if _, err := time.LoadLocation(tz); err != nil {
+		writeError(w, http.StatusBadRequest,
+			"invalid timezone: "+tz)
+		return db.AnalyticsFilter{}, false
+	}
+
+	from, to := defaultDateRange(q.Get("from"), q.Get("to"))
+
+	if !isValidDate(from) || !isValidDate(to) {
+		writeError(w, http.StatusBadRequest,
+			"invalid date format: use YYYY-MM-DD")
+		return db.AnalyticsFilter{}, false
+	}
+	if from > to {
+		writeError(w, http.StatusBadRequest,
+			"from must not be after to")
+		return db.AnalyticsFilter{}, false
+	}
+
+	return db.AnalyticsFilter{
+		From:     from,
+		To:       to,
+		Machine:  q.Get("machine"),
+		Timezone: tz,
+	}, true
+}
+
+func (s *Server) handleAnalyticsSummary(
+	w http.ResponseWriter, r *http.Request,
+) {
+	f, ok := parseAnalyticsFilter(w, r)
+	if !ok {
+		return
+	}
+
+	result, err := s.db.GetAnalyticsSummary(r.Context(), f)
+	if err != nil {
+		if handleContextError(w, err) {
+			return
+		}
+		log.Printf("analytics error: %v", err)
+		writeError(w, http.StatusInternalServerError,
+			"internal server error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleAnalyticsActivity(
+	w http.ResponseWriter, r *http.Request,
+) {
+	f, ok := parseAnalyticsFilter(w, r)
+	if !ok {
+		return
+	}
+
+	granularity := r.URL.Query().Get("granularity")
+	if granularity == "" {
+		granularity = "day"
+	}
+	switch granularity {
+	case "day", "week", "month":
+		// valid
+	default:
+		writeError(w, http.StatusBadRequest,
+			"invalid granularity: must be day, week, or month")
+		return
+	}
+
+	result, err := s.db.GetAnalyticsActivity(
+		r.Context(), f, granularity,
+	)
+	if err != nil {
+		if handleContextError(w, err) {
+			return
+		}
+		log.Printf("analytics error: %v", err)
+		writeError(w, http.StatusInternalServerError,
+			"internal server error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleAnalyticsHeatmap(
+	w http.ResponseWriter, r *http.Request,
+) {
+	f, ok := parseAnalyticsFilter(w, r)
+	if !ok {
+		return
+	}
+
+	metric := r.URL.Query().Get("metric")
+	if metric == "" {
+		metric = "messages"
+	}
+	switch metric {
+	case "messages", "sessions":
+		// valid
+	default:
+		writeError(w, http.StatusBadRequest,
+			"invalid metric: must be messages or sessions")
+		return
+	}
+
+	result, err := s.db.GetAnalyticsHeatmap(
+		r.Context(), f, metric,
+	)
+	if err != nil {
+		if handleContextError(w, err) {
+			return
+		}
+		log.Printf("analytics error: %v", err)
+		writeError(w, http.StatusInternalServerError,
+			"internal server error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleAnalyticsProjects(
+	w http.ResponseWriter, r *http.Request,
+) {
+	f, ok := parseAnalyticsFilter(w, r)
+	if !ok {
+		return
+	}
+
+	result, err := s.db.GetAnalyticsProjects(r.Context(), f)
+	if err != nil {
+		if handleContextError(w, err) {
+			return
+		}
+		log.Printf("analytics error: %v", err)
+		writeError(w, http.StatusInternalServerError,
+			"internal server error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}

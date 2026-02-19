@@ -1,0 +1,515 @@
+package sync
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	gosync "sync"
+	"time"
+
+	"github.com/wesm/agentsview/internal/db"
+	"github.com/wesm/agentsview/internal/parser"
+	"github.com/wesm/agentsview/internal/timeutil"
+)
+
+const (
+	batchSize  = 100
+	maxWorkers = 8
+)
+
+// Engine orchestrates session file discovery and sync.
+type Engine struct {
+	db            *db.DB
+	claudeDir     string
+	codexDir      string
+	machine       string
+	mu            gosync.RWMutex
+	lastSync      time.Time
+	lastSyncStats SyncStats
+	// failedFiles tracks paths that errored during parsing,
+	// keyed by path with the file mtime at time of failure.
+	// The file is only retried when its mtime changes.
+	failedMu    gosync.RWMutex
+	failedFiles map[string]int64
+}
+
+// NewEngine creates a sync engine.
+func NewEngine(
+	database *db.DB, claudeDir, codexDir, machine string,
+) *Engine {
+	return &Engine{
+		db:          database,
+		claudeDir:   claudeDir,
+		codexDir:    codexDir,
+		machine:     machine,
+		failedFiles: make(map[string]int64),
+	}
+}
+
+// LastSync returns the time of the last completed sync.
+func (e *Engine) LastSync() time.Time {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.lastSync
+}
+
+// LastSyncStats returns statistics from the last sync.
+func (e *Engine) LastSyncStats() SyncStats {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.lastSyncStats
+}
+
+type syncJob struct {
+	processResult
+	path string
+}
+
+// SyncAll discovers and syncs all Claude and Codex session files.
+func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
+	claude := DiscoverClaudeProjects(e.claudeDir)
+	codex := DiscoverCodexSessions(e.codexDir)
+
+	all := make([]DiscoveredFile, 0, len(claude)+len(codex))
+	all = append(all, claude...)
+	all = append(all, codex...)
+
+	if onProgress != nil {
+		onProgress(Progress{
+			Phase:         PhaseSyncing,
+			SessionsTotal: len(all),
+		})
+	}
+
+	results := e.startWorkers(all)
+	stats := e.collectAndBatch(results, len(all), onProgress)
+
+	e.mu.Lock()
+	e.lastSync = time.Now()
+	e.lastSyncStats = stats
+	e.mu.Unlock()
+	return stats
+}
+
+// startWorkers fans out file processing across a worker pool
+// and returns a channel of results.
+func (e *Engine) startWorkers(
+	files []DiscoveredFile,
+) <-chan syncJob {
+	workers := min(max(runtime.NumCPU(), 2), maxWorkers)
+
+	jobs := make(chan DiscoveredFile, len(files))
+	results := make(chan syncJob, len(files))
+
+	for range workers {
+		go func() {
+			for file := range jobs {
+				results <- syncJob{
+					processResult: e.processFile(file),
+					path:          file.Path,
+				}
+			}
+		}()
+	}
+
+	for _, f := range files {
+		jobs <- f
+	}
+	close(jobs)
+	return results
+}
+
+// collectAndBatch drains the results channel, batches
+// successful parses, and writes them to the database.
+func (e *Engine) collectAndBatch(
+	results <-chan syncJob, total int,
+	onProgress ProgressFunc,
+) SyncStats {
+	var stats SyncStats
+	stats.TotalSessions = total
+
+	progress := Progress{
+		Phase:         PhaseSyncing,
+		SessionsTotal: total,
+	}
+
+	var pending []pendingWrite
+
+	for range total {
+		r := <-results
+
+		if r.err != nil {
+			e.tombstoneFromPath(r.path)
+			log.Printf("sync error: %v", r.err)
+			continue
+		}
+		if r.skip {
+			stats.RecordSkip()
+			progress.SessionsDone++
+			if onProgress != nil {
+				onProgress(progress)
+			}
+			continue
+		}
+		e.clearTombstone(r.path)
+		if r.sess == nil {
+			progress.SessionsDone++
+			if onProgress != nil {
+				onProgress(progress)
+			}
+			continue
+		}
+
+		pending = append(pending, pendingWrite{
+			sess: *r.sess,
+			msgs: r.msgs,
+		})
+
+		if len(pending) >= batchSize {
+			stats.RecordSynced(len(pending))
+			progress.MessagesIndexed += countMessages(pending)
+			e.writeBatch(pending)
+			pending = pending[:0]
+		}
+
+		progress.SessionsDone++
+		if onProgress != nil {
+			onProgress(progress)
+		}
+	}
+
+	if len(pending) > 0 {
+		stats.RecordSynced(len(pending))
+		progress.MessagesIndexed += countMessages(pending)
+		e.writeBatch(pending)
+	}
+
+	progress.Phase = PhaseDone
+	if onProgress != nil {
+		onProgress(progress)
+	}
+	return stats
+}
+
+type processResult struct {
+	sess *parser.ParsedSession
+	msgs []parser.ParsedMessage
+	skip bool
+	err  error
+}
+
+func (e *Engine) processFile(
+	file DiscoveredFile,
+) processResult {
+
+	info, err := os.Stat(file.Path)
+	if err != nil {
+		return processResult{err: fmt.Errorf("stat %s: %w", file.Path, err)}
+	}
+
+	// Skip files that previously failed and haven't changed
+	mtime := info.ModTime().UnixNano()
+	e.failedMu.RLock()
+	failedMtime, failed := e.failedFiles[file.Path]
+	e.failedMu.RUnlock()
+	if failed && failedMtime == mtime {
+		return processResult{skip: true}
+	}
+
+	switch file.Agent {
+	case parser.AgentClaude:
+		return e.processClaude(file, info)
+	case parser.AgentCodex:
+		return e.processCodex(file, info)
+	default:
+		return processResult{
+			err: fmt.Errorf("unknown agent type: %s", file.Agent),
+		}
+	}
+}
+
+// tombstone records a failed file so it won't be retried
+// until its mtime changes.
+func (e *Engine) tombstone(path string, mtime int64) {
+	e.failedMu.Lock()
+	e.failedFiles[path] = mtime
+	e.failedMu.Unlock()
+}
+
+// clearTombstone removes a tombstone when a file succeeds.
+func (e *Engine) clearTombstone(path string) {
+	e.failedMu.Lock()
+	delete(e.failedFiles, path)
+	e.failedMu.Unlock()
+}
+
+// shouldSkipFile returns true when the file's size and hash
+// match what is already stored in the database.
+func (e *Engine) shouldSkipFile(
+	sessionID, path string, info os.FileInfo,
+) bool {
+	storedSize, storedHash, ok := e.db.GetSessionFileInfo(
+		sessionID,
+	)
+	if !ok || storedSize != info.Size() {
+		return false
+	}
+	hash, err := ComputeFileHash(path)
+	return err == nil && hash == storedHash
+}
+
+func (e *Engine) processClaude(
+	file DiscoveredFile, info os.FileInfo,
+) processResult {
+
+	sessionID := strings.TrimSuffix(info.Name(), ".jsonl")
+
+	if e.shouldSkipFile(sessionID, file.Path, info) {
+		sess, _ := e.db.GetSession(
+			context.Background(), sessionID,
+		)
+		if sess != nil &&
+			sess.Project != "" &&
+			!parser.NeedsProjectReparse(sess.Project) {
+			return processResult{skip: true}
+		}
+	}
+
+	// Determine project name from cwd if possible
+	project := parser.GetProjectName(file.Project)
+	cwd := parser.ExtractCwdFromSession(file.Path)
+	if cwd != "" {
+		if p := parser.ExtractProjectFromCwd(cwd); p != "" {
+			project = p
+		}
+	}
+
+	sess, msgs, err := parser.ParseClaudeSession(
+		file.Path, project, e.machine,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+
+	hash, err := ComputeFileHash(file.Path)
+	if err == nil {
+		sess.File.Hash = hash
+	}
+
+	return processResult{sess: &sess, msgs: msgs}
+}
+
+func (e *Engine) processCodex(
+	file DiscoveredFile, info os.FileInfo,
+) processResult {
+
+	// For codex, we need to parse to get session_id
+	sess, msgs, err := parser.ParseCodexSession(
+		file.Path, e.machine, false,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+	if sess == nil {
+		return processResult{} // non-interactive
+	}
+
+	if e.shouldSkipFile(sess.ID, file.Path, info) {
+		return processResult{skip: true}
+	}
+
+	hash, err := ComputeFileHash(file.Path)
+	if err == nil {
+		sess.File.Hash = hash
+	}
+
+	return processResult{sess: sess, msgs: msgs}
+}
+
+type pendingWrite struct {
+	sess parser.ParsedSession
+	msgs []parser.ParsedMessage
+}
+
+func (e *Engine) writeBatch(batch []pendingWrite) {
+	for _, pw := range batch {
+		s := db.Session{
+			ID:           pw.sess.ID,
+			Project:      pw.sess.Project,
+			Machine:      pw.sess.Machine,
+			Agent:        string(pw.sess.Agent),
+			MessageCount: pw.sess.MessageCount,
+			FilePath:     strPtr(pw.sess.File.Path),
+			FileSize:     int64Ptr(pw.sess.File.Size),
+			FileMtime:    int64Ptr(pw.sess.File.Mtime),
+			FileHash:     strPtr(pw.sess.File.Hash),
+		}
+		if pw.sess.FirstMessage != "" {
+			s.FirstMessage = &pw.sess.FirstMessage
+		}
+		if !pw.sess.StartedAt.IsZero() {
+			s.StartedAt = timeutil.Ptr(pw.sess.StartedAt)
+		}
+		if !pw.sess.EndedAt.IsZero() {
+			s.EndedAt = timeutil.Ptr(pw.sess.EndedAt)
+		}
+
+		if err := e.db.UpsertSession(s); err != nil {
+			log.Printf("upsert session %s: %v", s.ID, err)
+			continue
+		}
+
+		msgs := make([]db.Message, len(pw.msgs))
+		for i, m := range pw.msgs {
+			msgs[i] = db.Message{
+				SessionID:     pw.sess.ID,
+				Ordinal:       m.Ordinal,
+				Role:          string(m.Role),
+				Content:       m.Content,
+				Timestamp:     timeutil.Format(m.Timestamp),
+				HasThinking:   m.HasThinking,
+				HasToolUse:    m.HasToolUse,
+				ContentLength: m.ContentLength,
+			}
+		}
+
+		if err := e.db.ReplaceSessionMessages(
+			pw.sess.ID, msgs,
+		); err != nil {
+			log.Printf(
+				"replace messages for %s: %v", pw.sess.ID, err,
+			)
+		}
+	}
+}
+
+func countMessages(batch []pendingWrite) int {
+	n := 0
+	for _, pw := range batch {
+		n += len(pw.msgs)
+	}
+	return n
+}
+
+// FindSourceFile locates the original JSONL for a session ID.
+func (e *Engine) FindSourceFile(sessionID string) string {
+	if strings.HasPrefix(sessionID, "codex:") {
+		raw := sessionID[6:]
+		return FindCodexSourceFile(e.codexDir, raw)
+	}
+	return FindClaudeSourceFile(e.claudeDir, sessionID)
+}
+
+// SyncSingleSession re-syncs a single session by its ID.
+// Unlike the bulk SyncAll path, this includes exec-originated
+// Codex sessions and uses the existing DB project as fallback.
+func (e *Engine) SyncSingleSession(sessionID string) error {
+	path := e.FindSourceFile(sessionID)
+	if path == "" {
+		return fmt.Errorf(
+			"source file not found for %s", sessionID,
+		)
+	}
+
+	agent := parser.AgentClaude
+	if strings.HasPrefix(sessionID, "codex:") {
+		agent = parser.AgentCodex
+	}
+
+	// Reuse processFile for tombstone check, stat, and hash
+	// skip logic. For Claude this is the full pipeline; for
+	// Codex we need includeExec=true so we call the parser
+	// directly.
+	file := DiscoveredFile{
+		Path:  path,
+		Agent: agent,
+	}
+	if agent == parser.AgentClaude {
+		// Try to preserve existing project from DB first
+		if sess, _ := e.db.GetSession(context.Background(), sessionID); sess != nil &&
+			sess.Project != "" &&
+			!parser.NeedsProjectReparse(sess.Project) {
+			file.Project = sess.Project
+		} else {
+			file.Project = filepath.Base(filepath.Dir(path))
+		}
+	}
+
+	res := e.processFile(file)
+	if res.err != nil {
+		e.tombstoneFromPath(path)
+		return res.err
+	}
+	if res.skip {
+		return nil
+	}
+
+	// For Codex, processFile uses includeExec=false which may
+	// return nil sess for exec-originated sessions. Re-parse
+	// with includeExec=true when that happens.
+	if res.sess == nil && agent == parser.AgentCodex {
+		res = e.processCodexIncludeExec(file)
+		if res.err != nil {
+			e.tombstoneFromPath(path)
+			return res.err
+		}
+		if res.sess == nil {
+			return nil
+		}
+	}
+
+	if res.sess == nil {
+		return nil
+	}
+
+	e.clearTombstone(path)
+	e.writeBatch([]pendingWrite{
+		{sess: *res.sess, msgs: res.msgs},
+	})
+	return nil
+}
+
+// processCodexIncludeExec re-parses a Codex session with
+// exec-originated sessions included.
+func (e *Engine) processCodexIncludeExec(
+	file DiscoveredFile,
+) processResult {
+	sess, msgs, err := parser.ParseCodexSession(
+		file.Path, e.machine, true,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+	if sess == nil {
+		return processResult{}
+	}
+	if h, herr := ComputeFileHash(file.Path); herr == nil {
+		sess.File.Hash = h
+	}
+	return processResult{sess: sess, msgs: msgs}
+}
+
+func (e *Engine) tombstoneFromPath(path string) {
+	if info, err := os.Stat(path); err == nil {
+		e.tombstone(path, info.ModTime().UnixNano())
+	}
+}
+
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func int64Ptr(n int64) *int64 {
+	if n == 0 {
+		return nil
+	}
+	return &n
+}
+

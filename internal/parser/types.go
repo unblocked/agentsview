@@ -1,0 +1,51 @@
+package parser
+
+import "time"
+
+// AgentType identifies the AI agent that produced a session.
+type AgentType string
+
+const (
+	AgentClaude AgentType = "claude"
+	AgentCodex  AgentType = "codex"
+)
+
+// RoleType identifies the role of a message sender.
+type RoleType string
+
+const (
+	RoleUser      RoleType = "user"
+	RoleAssistant RoleType = "assistant"
+)
+
+// FileInfo holds file system metadata for a session source file.
+type FileInfo struct {
+	Path  string
+	Size  int64
+	Mtime int64
+	Hash  string
+}
+
+// ParsedSession holds session metadata extracted from a JSONL file.
+type ParsedSession struct {
+	ID           string
+	Project      string
+	Machine      string
+	Agent        AgentType
+	FirstMessage string
+	StartedAt    time.Time
+	EndedAt      time.Time
+	MessageCount int
+	File         FileInfo
+}
+
+// ParsedMessage holds a single extracted message.
+type ParsedMessage struct {
+	Ordinal       int
+	Role          RoleType
+	Content       string
+	Timestamp     time.Time
+	HasThinking   bool
+	HasToolUse    bool
+	ContentLength int
+}

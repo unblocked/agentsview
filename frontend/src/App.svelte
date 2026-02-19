@@ -1,0 +1,173 @@
+<script lang="ts">
+  import { onMount, untrack } from "svelte";
+  import AppHeader from "./lib/components/layout/AppHeader.svelte";
+  import ThreeColumnLayout from "./lib/components/layout/ThreeColumnLayout.svelte";
+  import StatusBar from "./lib/components/layout/StatusBar.svelte";
+  import SessionList from "./lib/components/sidebar/SessionList.svelte";
+  import MessageList from "./lib/components/content/MessageList.svelte";
+  import Minimap from "./lib/components/minimap/Minimap.svelte";
+  import CommandPalette from "./lib/components/command-palette/CommandPalette.svelte";
+  import ShortcutsModal from "./lib/components/modals/ShortcutsModal.svelte";
+  import PublishModal from "./lib/components/modals/PublishModal.svelte";
+  import AnalyticsPage from "./lib/components/analytics/AnalyticsPage.svelte";
+  import { sessions } from "./lib/stores/sessions.svelte.js";
+  import { messages } from "./lib/stores/messages.svelte.js";
+  import { sync } from "./lib/stores/sync.svelte.js";
+  import { ui } from "./lib/stores/ui.svelte.js";
+  import { router } from "./lib/stores/router.svelte.js";
+  import { registerShortcuts } from "./lib/utils/keyboard.js";
+  import type { DisplayItem } from "./lib/utils/display-items.js";
+
+  let messageListRef:
+    | {
+        scrollToOrdinal: (o: number) => void;
+        getDisplayItems: () => DisplayItem[];
+      }
+    | undefined = $state(undefined);
+  let scrollOffset: number = $state(0);
+  let scrollHeight: number = $state(0);
+  let clientHeight: number = $state(0);
+
+  // Load active session's messages when selection changes.
+  // Only track activeSessionId — untrack the rest to prevent
+  // reactive loops from messages.loading / messages.messages.
+  $effect(() => {
+    const id = sessions.activeSessionId;
+    untrack(() => {
+      ui.clearSelection();
+      if (id) {
+        messages.loadSession(id);
+        sync.watchSession(id, () => messages.reload());
+      } else {
+        messages.clear();
+        sync.unwatchSession();
+      }
+    });
+  });
+
+  // Scroll to pending ordinal once messages finish loading.
+  // If the target message is hidden (thinking-only with thinking
+  // disabled), auto-enable thinking so the message becomes visible.
+  $effect(() => {
+    const ordinal = ui.pendingScrollOrdinal;
+    const loading = messages.loading;
+    const showThinking = ui.showThinking;
+    untrack(() => {
+      if (ordinal < 0 || loading || !messageListRef) return;
+
+      const items = messageListRef.getDisplayItems();
+      const found = items.some((item) =>
+        item.ordinals.includes(ordinal),
+      );
+
+      if (!found && !showThinking && messages.messages.length > 0) {
+        // Target is likely a thinking-only message — enable thinking
+        ui.showThinking = true;
+        return; // effect re-runs with showThinking=true
+      }
+
+      messageListRef.scrollToOrdinal(ordinal);
+      ui.pendingScrollOrdinal = -1;
+    });
+  });
+
+  function navigateMessage(delta: number) {
+    const items = messageListRef?.getDisplayItems();
+    if (!items || items.length === 0) return;
+
+    const sorted = ui.sortNewestFirst
+      ? [...items].reverse()
+      : items;
+
+    if (ui.selectedOrdinal < 0) {
+      const first = sorted[0]!;
+      ui.selectOrdinal(first.ordinals[0]!);
+      messageListRef?.scrollToOrdinal(first.ordinals[0]!);
+      return;
+    }
+
+    const curIdx = sorted.findIndex((item) =>
+      item.ordinals.includes(ui.selectedOrdinal),
+    );
+    const nextIdx = Math.max(
+      0,
+      Math.min(sorted.length - 1, curIdx + delta),
+    );
+    if (nextIdx === curIdx) return;
+
+    const next = sorted[nextIdx]!;
+    ui.selectOrdinal(next.ordinals[0]!);
+    messageListRef?.scrollToOrdinal(next.ordinals[0]!);
+  }
+
+  onMount(() => {
+    sessions.load();
+    sessions.loadProjects();
+    sync.loadStatus();
+    sync.loadStats();
+    sync.startPolling();
+
+    const cleanup = registerShortcuts({ navigateMessage });
+    return () => {
+      cleanup();
+      sync.stopPolling();
+      sync.unwatchSession();
+    };
+  });
+
+  function handleScrollMetrics(
+    offset: number,
+    totalHeight: number,
+    viewportHeight: number,
+  ) {
+    scrollOffset = offset;
+    scrollHeight = totalHeight;
+    clientHeight = viewportHeight;
+  }
+
+  function handleMinimapClick(ordinal: number) {
+    messageListRef?.scrollToOrdinal(ordinal);
+  }
+</script>
+
+<AppHeader />
+
+{#if router.route === "analytics"}
+  <AnalyticsPage />
+{:else}
+  <ThreeColumnLayout>
+    {#snippet sidebar()}
+      <SessionList />
+    {/snippet}
+
+    {#snippet content()}
+      <MessageList
+        bind:this={messageListRef}
+        onScrollMetrics={handleScrollMetrics}
+      />
+    {/snippet}
+
+    {#snippet minimap()}
+      <Minimap
+        {scrollOffset}
+        {scrollHeight}
+        {clientHeight}
+        onClickIndex={handleMinimapClick}
+      />
+    {/snippet}
+  </ThreeColumnLayout>
+
+  <StatusBar />
+{/if}
+
+{#if ui.commandPaletteOpen}
+  <CommandPalette />
+{/if}
+
+{#if ui.shortcutsModalOpen}
+  <ShortcutsModal />
+{/if}
+
+{#if ui.publishModalOpen}
+  <PublishModal />
+{/if}

@@ -1,0 +1,32 @@
+# Go binaries
+/agentsv
+/testfixture
+*.test.exe
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+
+# Embedded frontend build output
+internal/web/dist/
+
+# Build artifacts
+/dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Local data
+data/
+sessions/
+html/

@@ -1,0 +1,15 @@
+package web
+
+import (
+	"embed"
+	"io/fs"
+)
+
+//go:embed all:dist
+var distFS embed.FS
+
+// Assets returns the compiled frontend filesystem, rooted
+// inside the embedded dist directory.
+func Assets() (fs.FS, error) {
+	return fs.Sub(distFS, "dist")
+}

@@ -1,0 +1,90 @@
+import * as api from "../api/client.js";
+import type { Session, ProjectInfo } from "../api/types.js";
+
+class SessionsStore {
+  sessions: Session[] = $state([]);
+  projects: ProjectInfo[] = $state([]);
+  activeSessionId: string | null = $state(null);
+  nextCursor: string | null = $state(null);
+  total: number = $state(0);
+  loading: boolean = $state(false);
+  projectFilter: string = $state("");
+
+  private loadVersion: number = 0;
+
+  get activeSession(): Session | undefined {
+    return this.sessions.find(
+      (s) => s.id === this.activeSessionId,
+    );
+  }
+
+  async load() {
+    const version = ++this.loadVersion;
+    this.loading = true;
+    try {
+      const page = await api.listSessions({
+        project: this.projectFilter || undefined,
+        limit: 200,
+      });
+      if (this.loadVersion !== version) return;
+      this.sessions = page.sessions;
+      this.nextCursor = page.next_cursor ?? null;
+      this.total = page.total;
+    } finally {
+      if (this.loadVersion === version) {
+        this.loading = false;
+      }
+    }
+  }
+
+  async loadMore() {
+    if (!this.nextCursor || this.loading) return;
+    const version = ++this.loadVersion;
+    this.loading = true;
+    try {
+      const page = await api.listSessions({
+        project: this.projectFilter || undefined,
+        cursor: this.nextCursor,
+        limit: 200,
+      });
+      if (this.loadVersion !== version) return;
+      this.sessions.push(...page.sessions);
+      this.nextCursor = page.next_cursor ?? null;
+      this.total = page.total;
+    } finally {
+      if (this.loadVersion === version) {
+        this.loading = false;
+      }
+    }
+  }
+
+  async loadProjects() {
+    const res = await api.getProjects();
+    this.projects = res.projects;
+  }
+
+  selectSession(id: string) {
+    this.activeSessionId = id;
+  }
+
+  navigateSession(delta: number) {
+    const idx = this.sessions.findIndex(
+      (s) => s.id === this.activeSessionId,
+    );
+    const next = idx + delta;
+    if (next >= 0 && next < this.sessions.length) {
+      this.activeSessionId = this.sessions[next]!.id;
+    }
+  }
+
+  setProjectFilter(project: string) {
+    this.projectFilter = project;
+    this.activeSessionId = null;
+    this.sessions = [];
+    this.nextCursor = null;
+    this.total = 0;
+    this.load();
+  }
+}
+
+export const sessions = new SessionsStore();

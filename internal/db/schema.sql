@@ -1,0 +1,74 @@
+-- Sessions table
+CREATE TABLE IF NOT EXISTS sessions (
+    id          TEXT PRIMARY KEY,
+    project     TEXT NOT NULL,
+    machine     TEXT NOT NULL DEFAULT 'local',
+    agent       TEXT NOT NULL DEFAULT 'claude',
+    first_message TEXT,
+    started_at  TEXT,
+    ended_at    TEXT,
+    message_count INTEGER NOT NULL DEFAULT 0,
+    file_path   TEXT,
+    file_size   INTEGER,
+    file_mtime  INTEGER,
+    file_hash   TEXT,
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+-- Messages table with ordinal for efficient range queries
+CREATE TABLE IF NOT EXISTS messages (
+    id             INTEGER PRIMARY KEY,
+    session_id     TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    ordinal        INTEGER NOT NULL,
+    role           TEXT NOT NULL,
+    content        TEXT NOT NULL,
+    timestamp      TEXT,
+    has_thinking   INTEGER NOT NULL DEFAULT 0,
+    has_tool_use   INTEGER NOT NULL DEFAULT 0,
+    content_length INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(session_id, ordinal)
+);
+
+-- Stats table maintained by triggers
+CREATE TABLE IF NOT EXISTS stats (
+    key   TEXT PRIMARY KEY,
+    value INTEGER NOT NULL DEFAULT 0
+);
+
+INSERT OR IGNORE INTO stats (key, value) VALUES ('session_count', 0);
+INSERT OR IGNORE INTO stats (key, value) VALUES ('message_count', 0);
+
+-- Triggers for stats maintenance
+CREATE TRIGGER IF NOT EXISTS sessions_insert_stats AFTER INSERT ON sessions BEGIN
+    UPDATE stats SET value = value + 1 WHERE key = 'session_count';
+END;
+
+CREATE TRIGGER IF NOT EXISTS sessions_delete_stats AFTER DELETE ON sessions BEGIN
+    UPDATE stats SET value = value - 1 WHERE key = 'session_count';
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_insert_stats AFTER INSERT ON messages BEGIN
+    UPDATE stats SET value = value + 1 WHERE key = 'message_count';
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_delete_stats AFTER DELETE ON messages BEGIN
+    UPDATE stats SET value = value - 1 WHERE key = 'message_count';
+END;
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_sessions_ended
+    ON sessions(ended_at DESC, id);
+CREATE INDEX IF NOT EXISTS idx_sessions_project
+    ON sessions(project);
+CREATE INDEX IF NOT EXISTS idx_sessions_machine
+    ON sessions(machine);
+CREATE INDEX IF NOT EXISTS idx_messages_session_ordinal
+    ON messages(session_id, ordinal);
+
+-- Analytics indexes
+CREATE INDEX IF NOT EXISTS idx_sessions_started
+    ON sessions(started_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_message_count
+    ON sessions(message_count);
+CREATE INDEX IF NOT EXISTS idx_sessions_agent
+    ON sessions(agent);
