@@ -82,7 +82,7 @@ tidy:
 
 # Clean build artifacts
 clean:
-	rm -f agentsview
+	rm -f agentsview agentsv
 	rm -rf internal/web/dist dist/
 
 # Build release binary for current platform (CGO required for sqlite3)

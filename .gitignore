@@ -1,5 +1,6 @@
 # Go binaries
 /agentsview
+/agentsv
 /testfixture
 *.test.exe
 

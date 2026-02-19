@@ -79,10 +79,15 @@ jobs:
           CGO_ENABLED: "1"
 
       - name: Upload coverage
+        id: codecov
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de  # v5.5.2
         with:
-          file: coverage.out
+          files: coverage.out
         continue-on-error: true
+
+      - name: Warn on coverage upload failure
+        if: steps.codecov.outcome == 'failure'
+        run: echo "::warning::Codecov upload failed"
 
   e2e:
     runs-on: ubuntu-latest
