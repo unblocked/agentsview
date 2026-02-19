@@ -232,10 +232,23 @@ func (db *DB) GetAnalyticsSummary(
 		}
 	}
 
-	// Concentration: fraction of messages in top project
+	// Concentration: fraction of messages in top 3 projects
 	if s.TotalMessages > 0 {
+		counts := make([]int, 0, len(projects))
+		for _, c := range projects {
+			counts = append(counts, c)
+		}
+		sort.Sort(sort.Reverse(sort.IntSlice(counts)))
+		top := 3
+		if len(counts) < top {
+			top = len(counts)
+		}
+		topSum := 0
+		for _, c := range counts[:top] {
+			topSum += c
+		}
 		s.Concentration = math.Round(
-			float64(maxMsgs)/float64(s.TotalMessages)*1000,
+			float64(topSum)/float64(s.TotalMessages)*1000,
 		) / 1000
 	}
 

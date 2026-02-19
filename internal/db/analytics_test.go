@@ -164,6 +164,10 @@ func TestGetAnalyticsSummary(t *testing.T) {
 		if s.MostActive != "project-beta" {
 			t.Errorf("MostActive = %q, want project-beta", s.MostActive)
 		}
+		// 2 projects, both in top 3 → concentration = 1.0
+		if s.Concentration != 1.0 {
+			t.Errorf("Concentration = %f, want 1.0", s.Concentration)
+		}
 
 		// Sorted message counts: [5, 10, 15, 20, 30]
 		if s.MedianMessages != 15 {
@@ -597,4 +601,89 @@ func TestAnalyticsCanceledContext(t *testing.T) {
 			requireCanceledErr(t, tt.fn())
 		})
 	}
+}
+
+func TestConcentrationTopThree(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("OneProject", func(t *testing.T) {
+		d := testDB(t)
+		insertSession(t, d, "c1", "solo", func(s *Session) {
+			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
+			s.MessageCount = 50
+			s.Agent = "claude"
+		})
+		f := AnalyticsFilter{
+			From:     "2024-06-01",
+			To:       "2024-06-01",
+			Timezone: "UTC",
+		}
+		s := mustSummary(t, d, ctx, f)
+		if s.Concentration != 1.0 {
+			t.Errorf(
+				"Concentration = %f, want 1.0",
+				s.Concentration,
+			)
+		}
+	})
+
+	t.Run("TwoProjects", func(t *testing.T) {
+		d := testDB(t)
+		insertSession(t, d, "c1", "alpha", func(s *Session) {
+			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
+			s.MessageCount = 35
+			s.Agent = "claude"
+		})
+		insertSession(t, d, "c2", "beta", func(s *Session) {
+			s.StartedAt = Ptr("2024-06-01T10:00:00Z")
+			s.MessageCount = 45
+			s.Agent = "claude"
+		})
+		f := AnalyticsFilter{
+			From:     "2024-06-01",
+			To:       "2024-06-01",
+			Timezone: "UTC",
+		}
+		s := mustSummary(t, d, ctx, f)
+		// Both in top 3 → concentration = 1.0
+		if s.Concentration != 1.0 {
+			t.Errorf(
+				"Concentration = %f, want 1.0",
+				s.Concentration,
+			)
+		}
+	})
+
+	t.Run("FourProjects", func(t *testing.T) {
+		d := testDB(t)
+		for i, tc := range []struct {
+			proj string
+			msgs int
+		}{
+			{"p1", 40}, {"p2", 30}, {"p3", 20}, {"p4", 10},
+		} {
+			id := fmt.Sprintf("c%d", i)
+			insertSession(t, d, id, tc.proj, func(s *Session) {
+				ts := fmt.Sprintf(
+					"2024-06-01T%02d:00:00Z", i+9,
+				)
+				s.StartedAt = &ts
+				s.MessageCount = tc.msgs
+				s.Agent = "claude"
+			})
+		}
+		f := AnalyticsFilter{
+			From:     "2024-06-01",
+			To:       "2024-06-01",
+			Timezone: "UTC",
+		}
+		s := mustSummary(t, d, ctx, f)
+		// Top 3: 40+30+20 = 90, total = 100
+		if s.Concentration != 0.9 {
+			t.Errorf(
+				"Concentration = %f, want 0.9",
+				s.Concentration,
+			)
+		}
+	})
 }

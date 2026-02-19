@@ -39,6 +39,11 @@ export interface ListSessionsParams {
   project?: string;
   machine?: string;
   agent?: string;
+  date?: string;
+  date_from?: string;
+  date_to?: string;
+  min_messages?: number;
+  max_messages?: number;
   cursor?: string;
   limit?: number;
 }
@@ -50,6 +55,11 @@ export function listSessions(
   if (params.project) q.set("project", params.project);
   if (params.machine) q.set("machine", params.machine);
   if (params.agent) q.set("agent", params.agent);
+  if (params.date) q.set("date", params.date);
+  if (params.date_from) q.set("date_from", params.date_from);
+  if (params.date_to) q.set("date_to", params.date_to);
+  if (params.min_messages) q.set("min_messages", String(params.min_messages));
+  if (params.max_messages) q.set("max_messages", String(params.max_messages));
   if (params.cursor) q.set("cursor", params.cursor);
   if (params.limit) q.set("limit", String(params.limit));
   const qs = q.toString();

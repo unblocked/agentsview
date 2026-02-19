@@ -107,9 +107,20 @@
     messageListRef?.scrollToOrdinal(next.ordinals[0]!);
   }
 
+  // React to route changes: initialize session filters from URL params
+  $effect(() => {
+    const route = router.route;
+    const params = router.params;
+    untrack(() => {
+      if (route === "sessions") {
+        sessions.initFromParams(params);
+        sessions.load();
+        sessions.loadProjects();
+      }
+    });
+  });
+
   onMount(() => {
-    sessions.load();
-    sessions.loadProjects();
     sync.loadStatus();
     sync.loadStats();
     sync.startPolling();

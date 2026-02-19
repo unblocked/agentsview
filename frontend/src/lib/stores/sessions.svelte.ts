@@ -9,6 +9,11 @@ class SessionsStore {
   total: number = $state(0);
   loading: boolean = $state(false);
   projectFilter: string = $state("");
+  dateFilter: string = $state("");
+  dateFromFilter: string = $state("");
+  dateToFilter: string = $state("");
+  minMessagesFilter: number = $state(0);
+  maxMessagesFilter: number = $state(0);
 
   private loadVersion: number = 0;
 
@@ -18,12 +23,37 @@ class SessionsStore {
     );
   }
 
+  initFromParams(params: Record<string, string>) {
+    const project = params["project"] ?? "";
+    const date = params["date"] ?? "";
+    const dateFrom = params["date_from"] ?? "";
+    const dateTo = params["date_to"] ?? "";
+    const minMsgs = parseInt(params["min_messages"] ?? "", 10);
+    const maxMsgs = parseInt(params["max_messages"] ?? "", 10);
+
+    this.projectFilter = project;
+    this.dateFilter = date;
+    this.dateFromFilter = dateFrom;
+    this.dateToFilter = dateTo;
+    this.minMessagesFilter = Number.isFinite(minMsgs) ? minMsgs : 0;
+    this.maxMessagesFilter = Number.isFinite(maxMsgs) ? maxMsgs : 0;
+    this.activeSessionId = null;
+    this.sessions = [];
+    this.nextCursor = null;
+    this.total = 0;
+  }
+
   async load() {
     const version = ++this.loadVersion;
     this.loading = true;
     try {
       const page = await api.listSessions({
         project: this.projectFilter || undefined,
+        date: this.dateFilter || undefined,
+        date_from: this.dateFromFilter || undefined,
+        date_to: this.dateToFilter || undefined,
+        min_messages: this.minMessagesFilter || undefined,
+        max_messages: this.maxMessagesFilter || undefined,
         limit: 200,
       });
       if (this.loadVersion !== version) return;
@@ -44,6 +74,11 @@ class SessionsStore {
     try {
       const page = await api.listSessions({
         project: this.projectFilter || undefined,
+        date: this.dateFilter || undefined,
+        date_from: this.dateFromFilter || undefined,
+        date_to: this.dateToFilter || undefined,
+        min_messages: this.minMessagesFilter || undefined,
+        max_messages: this.maxMessagesFilter || undefined,
         cursor: this.nextCursor,
         limit: 200,
       });
@@ -79,6 +114,11 @@ class SessionsStore {
 
   setProjectFilter(project: string) {
     this.projectFilter = project;
+    this.dateFilter = "";
+    this.dateFromFilter = "";
+    this.dateToFilter = "";
+    this.minMessagesFilter = 0;
+    this.maxMessagesFilter = 0;
     this.activeSessionId = null;
     this.sessions = [];
     this.nextCursor = null;
