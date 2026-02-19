@@ -164,10 +164,12 @@ func extractGeminiContent(
 		toolCalls.ForEach(func(_, tc gjson.Result) bool {
 			hasToolUse = true
 			name := tc.Get("name").Str
-			parsed = append(parsed, ParsedToolCall{
-				ToolName: name,
-				Category: NormalizeToolCategory(name),
-			})
+			if name != "" {
+				parsed = append(parsed, ParsedToolCall{
+					ToolName: name,
+					Category: NormalizeToolCategory(name),
+				})
+			}
 			parts = append(parts, formatGeminiToolCall(tc))
 			return true
 		})

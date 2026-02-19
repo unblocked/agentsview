@@ -43,10 +43,12 @@ func ExtractTextContent(
 		case "tool_use":
 			hasToolUse = true
 			name := block.Get("name").Str
-			toolCalls = append(toolCalls, ParsedToolCall{
-				ToolName: name,
-				Category: NormalizeToolCategory(name),
-			})
+			if name != "" {
+				toolCalls = append(toolCalls, ParsedToolCall{
+					ToolName: name,
+					Category: NormalizeToolCategory(name),
+				})
+			}
 			parts = append(parts, formatToolUse(block))
 		}
 		return true

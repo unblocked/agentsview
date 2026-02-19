@@ -167,6 +167,11 @@ func TestExtractTextContent(t *testing.T) {
 			},
 		},
 		{
+			"tool_use with empty name",
+			`[{"type":"tool_use","name":"","input":{}}]`,
+			"[Tool: ]", false, true, nil,
+		},
+		{
 			"empty array",
 			`[]`,
 			"", false, false, nil,

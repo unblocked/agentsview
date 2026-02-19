@@ -162,11 +162,11 @@ func SampleMinimap(
 }
 
 // insertMessagesTx batch-inserts messages within an existing
-// transaction. Returns a map of ordinal to message ID for
-// resolving tool call foreign keys. The caller must hold db.mu.
+// transaction. Returns a slice of message IDs parallel to the
+// input msgs slice. The caller must hold db.mu.
 func (db *DB) insertMessagesTx(
 	tx *sql.Tx, msgs []Message,
-) (map[int]int64, error) {
+) ([]int64, error) {
 	stmt, err := tx.Prepare(fmt.Sprintf(`
 		INSERT INTO messages (%s)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, insertMessageCols))
@@ -175,8 +175,8 @@ func (db *DB) insertMessagesTx(
 	}
 	defer stmt.Close()
 
-	ordinalToID := make(map[int]int64, len(msgs))
-	for _, m := range msgs {
+	ids := make([]int64, len(msgs))
+	for i, m := range msgs {
 		res, err := stmt.Exec(
 			m.SessionID, m.Ordinal, m.Role, m.Content,
 			m.Timestamp, m.HasThinking, m.HasToolUse,
@@ -193,9 +193,9 @@ func (db *DB) insertMessagesTx(
 				"last insert id ord=%d: %w", m.Ordinal, err,
 			)
 		}
-		ordinalToID[m.Ordinal] = id
+		ids[i] = id
 	}
-	return ordinalToID, nil
+	return ids, nil
 }
 
 // insertToolCallsTx batch-inserts tool calls within an
@@ -243,12 +243,12 @@ func (db *DB) InsertMessages(msgs []Message) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	ordinalToID, err := db.insertMessagesTx(tx, msgs)
+	ids, err := db.insertMessagesTx(tx, msgs)
 	if err != nil {
 		return err
 	}
 
-	toolCalls := resolveToolCalls(msgs, ordinalToID)
+	toolCalls := resolveToolCalls(msgs, ids)
 	if err := insertToolCallsTx(tx, toolCalls); err != nil {
 		return err
 	}
@@ -293,11 +293,11 @@ func (db *DB) ReplaceSessionMessages(
 	}
 
 	if len(msgs) > 0 {
-		ordinalToID, err := db.insertMessagesTx(tx, msgs)
+		ids, err := db.insertMessagesTx(tx, msgs)
 		if err != nil {
 			return err
 		}
-		toolCalls := resolveToolCalls(msgs, ordinalToID)
+		toolCalls := resolveToolCalls(msgs, ids)
 		if err := insertToolCallsTx(tx, toolCalls); err != nil {
 			return err
 		}
@@ -359,16 +359,15 @@ func (db *DB) GetMessageByOrdinal(
 }
 
 // resolveToolCalls builds ToolCall rows from messages using
-// the ordinal-to-ID map from insertMessagesTx.
+// the parallel IDs slice from insertMessagesTx.
 func resolveToolCalls(
-	msgs []Message, ordinalToID map[int]int64,
+	msgs []Message, ids []int64,
 ) []ToolCall {
 	var calls []ToolCall
-	for _, m := range msgs {
-		msgID := ordinalToID[m.Ordinal]
+	for i, m := range msgs {
 		for _, tc := range m.ToolCalls {
 			calls = append(calls, ToolCall{
-				MessageID: msgID,
+				MessageID: ids[i],
 				SessionID: m.SessionID,
 				ToolName:  tc.ToolName,
 				Category:  tc.Category,

@@ -1537,6 +1537,72 @@ func TestToolCallsNoToolCalls(t *testing.T) {
 	}
 }
 
+func TestToolCallsMixedSessionsOverlappingOrdinals(t *testing.T) {
+	d := testDB(t)
+
+	insertSession(t, d, "s1", "p")
+	insertSession(t, d, "s2", "p")
+
+	// Both sessions have ordinal 0 with tool calls
+	m1 := asstMsg("s1", 0, "[Read]")
+	m1.HasToolUse = true
+	m1.ToolCalls = []ToolCall{
+		{SessionID: "s1", ToolName: "Read", Category: "Read"},
+	}
+	m2 := asstMsg("s2", 0, "[Bash]")
+	m2.HasToolUse = true
+	m2.ToolCalls = []ToolCall{
+		{SessionID: "s2", ToolName: "Bash", Category: "Bash"},
+	}
+
+	insertMessages(t, d, m1, m2)
+
+	// Verify each tool_call.message_id joins to the correct
+	// session: Read→s1, Bash→s2.
+	rows, err := d.Reader().Query(`
+		SELECT tc.tool_name, tc.session_id, m.session_id
+		FROM tool_calls tc
+		JOIN messages m ON m.id = tc.message_id
+		ORDER BY tc.tool_name`)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer rows.Close()
+
+	type row struct {
+		toolName, tcSession, msgSession string
+	}
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(
+			&r.toolName, &r.tcSession, &r.msgSession,
+		); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("got %d tool_calls, want 2", len(got))
+	}
+	// Bash should be linked to s2
+	if got[0].toolName != "Bash" ||
+		got[0].tcSession != "s2" ||
+		got[0].msgSession != "s2" {
+		t.Errorf("Bash row = %+v", got[0])
+	}
+	// Read should be linked to s1
+	if got[1].toolName != "Read" ||
+		got[1].tcSession != "s1" ||
+		got[1].msgSession != "s1" {
+		t.Errorf("Read row = %+v", got[1])
+	}
+}
+
 func TestFTSBackfill(t *testing.T) {
 	dCheck := testDB(t)
 	requireFTS(t, dCheck)
