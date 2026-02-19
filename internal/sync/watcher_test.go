@@ -67,6 +67,9 @@ func pollUntil(
 		}
 		time.Sleep(interval)
 	}
+	if fn() {
+		return
+	}
 	t.Fatal(msg)
 }
 
