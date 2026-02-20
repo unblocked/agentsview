@@ -90,12 +90,16 @@
 
   {#if analytics.loading.velocity || analytics.loading.summary || analytics.loading.tools}
     <div class="loading">Loading...</div>
-  {:else if analytics.errors.velocity}
+  {:else if analytics.errors.velocity || analytics.errors.summary || analytics.errors.tools}
     <div class="error">
-      {analytics.errors.velocity}
+      {analytics.errors.velocity ?? analytics.errors.summary ?? analytics.errors.tools}
       <button
         class="retry-btn"
-        onclick={() => analytics.fetchVelocity()}
+        onclick={() => {
+          analytics.fetchVelocity();
+          analytics.fetchSummary();
+          analytics.fetchTools();
+        }}
       >
         Retry
       </button>
