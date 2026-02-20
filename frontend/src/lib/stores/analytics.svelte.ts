@@ -317,11 +317,28 @@ class AnalyticsStore {
     }
   }
 
+  private updateURL() {
+    const params: Record<string, string> = {
+      from: this.from,
+      to: this.to,
+    };
+    if (this.granularity !== "day") {
+      params["granularity"] = this.granularity;
+    }
+    if (this.metric !== "messages") {
+      params["metric"] = this.metric;
+    }
+    if (this.selectedDate) {
+      params["selected"] = this.selectedDate;
+    }
+    router.navigate("analytics", params);
+  }
+
   setDateRange(from: string, to: string) {
     this.from = from;
     this.to = to;
     this.selectedDate = null;
-    router.navigate("analytics", { from, to });
+    this.updateURL();
     this.fetchAll();
   }
 
@@ -331,6 +348,7 @@ class AnalyticsStore {
     } else {
       this.selectedDate = date;
     }
+    this.updateURL();
     this.fetchSummary();
     this.fetchActivity();
     this.fetchProjects();
@@ -341,17 +359,26 @@ class AnalyticsStore {
 
   setGranularity(g: string) {
     this.granularity = g;
+    this.updateURL();
     this.fetchActivity();
   }
 
   setMetric(m: string) {
     this.metric = m;
+    this.updateURL();
     this.fetchHeatmap();
   }
 
   initFromParams(params: Record<string, string>) {
     if (params["from"]) this.from = params["from"];
     if (params["to"]) this.to = params["to"];
+    if (params["granularity"]) {
+      this.granularity = params["granularity"];
+    }
+    if (params["metric"]) this.metric = params["metric"];
+    if (params["selected"]) {
+      this.selectedDate = params["selected"];
+    }
   }
 }
 

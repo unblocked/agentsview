@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fade } from "svelte/transition";
   import { analytics } from "../../stores/analytics.svelte.js";
 
   const CELL_SIZE = 14;
@@ -118,7 +119,7 @@
       </button>
     </div>
   {:else if grid}
-    <div class="how-scroll">
+    <div class="how-scroll" in:fade={{ duration: 150 }}>
       <svg
         width={svgWidth}
         height={svgHeight}

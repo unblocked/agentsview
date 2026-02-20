@@ -275,6 +275,64 @@ describe("AnalyticsStore.setDateRange", () => {
   });
 });
 
+describe("AnalyticsStore.initFromParams", () => {
+  beforeEach(() => {
+    resetStore();
+    analytics.granularity = "day";
+    analytics.metric = "messages";
+    vi.clearAllMocks();
+    mockAllAPIs();
+  });
+
+  it("should read granularity, metric, and selected from params", () => {
+    analytics.initFromParams({
+      from: "2024-03-01",
+      to: "2024-03-31",
+      granularity: "week",
+      metric: "sessions",
+      selected: "2024-03-15",
+    });
+    expect(analytics.from).toBe("2024-03-01");
+    expect(analytics.to).toBe("2024-03-31");
+    expect(analytics.granularity).toBe("week");
+    expect(analytics.metric).toBe("sessions");
+    expect(analytics.selectedDate).toBe("2024-03-15");
+  });
+
+  it("should keep defaults when params are absent", () => {
+    analytics.initFromParams({});
+    expect(analytics.granularity).toBe("day");
+    expect(analytics.metric).toBe("messages");
+    expect(analytics.selectedDate).toBeNull();
+  });
+});
+
+describe("AnalyticsStore.setGranularity URL sync", () => {
+  beforeEach(() => {
+    resetStore();
+    vi.clearAllMocks();
+    mockAllAPIs();
+  });
+
+  it("should call navigate with granularity param", async () => {
+    const { router } = await import("./router.svelte.js");
+    analytics.setGranularity("week");
+    expect(router.navigate).toHaveBeenCalledWith(
+      "analytics",
+      expect.objectContaining({ granularity: "week" }),
+    );
+  });
+
+  it("should omit default granularity from URL params", async () => {
+    const { router } = await import("./router.svelte.js");
+    analytics.setGranularity("day");
+    expect(router.navigate).toHaveBeenCalledWith(
+      "analytics",
+      expect.not.objectContaining({ granularity: "day" }),
+    );
+  });
+});
+
 describe("AnalyticsStore heatmap uses full range", () => {
   beforeEach(() => {
     resetStore();

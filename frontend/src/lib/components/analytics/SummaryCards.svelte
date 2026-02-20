@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fade } from "svelte/transition";
   import { analytics } from "../../stores/analytics.svelte.js";
 
   function formatNum(n: number): string {
@@ -69,7 +70,9 @@
         <span class="card-value error">--</span>
         <span class="card-label">{card.label}</span>
       {:else}
-        <span class="card-value">{card.value()}</span>
+        <span class="card-value" in:fade={{ duration: 150 }}>
+          {card.value()}
+        </span>
         <span class="card-label">{card.label}</span>
         {#if card.sub}
           {@const subtext = card.sub()}

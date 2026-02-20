@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fade } from "svelte/transition";
   import { analytics } from "../../stores/analytics.svelte.js";
   import { router } from "../../stores/router.svelte.js";
   import type { ProjectAnalytics } from "../../api/types.js";
@@ -109,7 +110,7 @@
       </button>
     </div>
   {:else if rows.length > 0}
-    <div class="bar-list">
+    <div class="bar-list" in:fade={{ duration: 150 }}>
       {#each rows as project, i}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->

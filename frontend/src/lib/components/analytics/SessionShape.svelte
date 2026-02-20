@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { fade } from "svelte/transition";
   import { analytics } from "../../stores/analytics.svelte.js";
+  import { router } from "../../stores/router.svelte.js";
   import type { DistributionBucket } from "../../api/types.js";
 
   type View = "length" | "duration" | "autonomy";
@@ -30,6 +32,31 @@
 
   function barWidth(bucket: DistributionBucket): string {
     return `${(bucket.count / maxCount) * 100}%`;
+  }
+
+  function parseLengthBucket(
+    label: string,
+  ): { min: number; max?: number } {
+    if (label.endsWith("+")) {
+      return { min: parseInt(label, 10) };
+    }
+    const parts = label.split("-");
+    return {
+      min: parseInt(parts[0]!, 10),
+      max: parseInt(parts[1]!, 10),
+    };
+  }
+
+  function handleBucketClick(bucket: DistributionBucket) {
+    if (activeView !== "length" || bucket.count === 0) return;
+    const { min, max } = parseLengthBucket(bucket.label);
+    const params: Record<string, string> = {
+      min_messages: String(min),
+    };
+    if (max !== undefined) {
+      params["max_messages"] = String(max);
+    }
+    router.navigate("sessions", params);
   }
 </script>
 
@@ -62,9 +89,15 @@
       </button>
     </div>
   {:else if activeBuckets.length > 0}
-    <div class="bar-chart">
+    <div class="bar-chart" in:fade={{ duration: 150 }}>
       {#each activeBuckets as bucket}
-        <div class="bar-row">
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="bar-row"
+          class:clickable={activeView === "length" && bucket.count > 0}
+          onclick={() => handleBucketClick(bucket)}
+        >
           <span class="bar-label">{bucket.label}</span>
           <div class="bar-track">
             <div
@@ -140,6 +173,17 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    padding: 2px 4px;
+    border-radius: var(--radius-sm);
+    transition: background 0.1s;
+  }
+
+  .bar-row.clickable {
+    cursor: pointer;
+  }
+
+  .bar-row.clickable:hover {
+    background: var(--bg-surface-hover);
   }
 
   .bar-label {

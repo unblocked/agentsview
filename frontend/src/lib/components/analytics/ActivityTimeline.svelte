@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { fade } from "svelte/transition";
   import { analytics } from "../../stores/analytics.svelte.js";
+  import { router } from "../../stores/router.svelte.js";
 
   const BAR_HEIGHT = 120;
   const LABEL_HEIGHT = 20;
@@ -125,6 +127,44 @@
     };
   }
 
+  function addDays(dateStr: string, n: number): string {
+    const d = new Date(dateStr + "T00:00:00");
+    d.setDate(d.getDate() + n);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function endOfMonth(dateStr: string): string {
+    const d = new Date(dateStr + "T00:00:00");
+    d.setMonth(d.getMonth() + 1, 0);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function handleBarClick(
+    bar: (typeof chart.bars)[number],
+  ) {
+    if (bar.value === 0) return;
+    const g = analytics.granularity;
+    if (g === "week") {
+      router.navigate("sessions", {
+        date_from: bar.date,
+        date_to: addDays(bar.date, 6),
+      });
+    } else if (g === "month") {
+      router.navigate("sessions", {
+        date_from: bar.date,
+        date_to: endOfMonth(bar.date),
+      });
+    } else {
+      router.navigate("sessions", { date: bar.date });
+    }
+  }
+
   function handleBarLeave() {
     tooltip = null;
   }
@@ -189,7 +229,7 @@
       </button>
     </div>
   {:else if chart.bars.length > 0}
-    <div class="chart-area" bind:this={containerEl}>
+    <div class="chart-area" bind:this={containerEl} in:fade={{ duration: 150 }}>
       <svg
         width={svgWidth}
         height={SVG_HEIGHT}
@@ -217,6 +257,7 @@
             class="bar"
             class:empty={bar.value === 0}
             role="img"
+            onclick={() => handleBarClick(bar)}
             onmouseenter={(e) => handleBarHover(e, bar)}
             onmouseleave={handleBarLeave}
           />

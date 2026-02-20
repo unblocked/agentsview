@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fade } from "svelte/transition";
   import { analytics } from "../../stores/analytics.svelte.js";
   import type { ToolCategoryCount } from "../../api/types.js";
 
@@ -129,7 +130,7 @@
       </button>
     </div>
   {:else if categories.length > 0}
-    <div class="sections">
+    <div class="sections" in:fade={{ duration: 150 }}>
       <div class="section">
         <h4 class="section-title">By Category</h4>
         <div class="bar-list">

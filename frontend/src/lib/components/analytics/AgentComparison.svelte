@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { fade } from "svelte/transition";
   import { analytics } from "../../stores/analytics.svelte.js";
+  import { router } from "../../stores/router.svelte.js";
 
   interface AgentRow {
     name: string;
@@ -103,7 +105,7 @@
       No comparison data (need 2+ agents)
     </div>
   {:else}
-    <div class="comparison-table">
+    <div class="comparison-table" in:fade={{ duration: 150 }}>
       <div class="table-header">
         <span class="col-agent">Agent</span>
         <span class="col-num">Sessions</span>
@@ -115,7 +117,12 @@
         <span class="col-cats">Top Categories</span>
       </div>
       {#each agents as agent}
-        <div class="table-row">
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="table-row"
+          onclick={() => router.navigate("sessions", { agent: agent.name })}
+        >
           <span class="col-agent">{agent.name}</span>
           <span class="col-num">
             {agent.sessions.toLocaleString()}
@@ -180,6 +187,7 @@
   .table-row {
     font-size: 11px;
     color: var(--text-secondary);
+    cursor: pointer;
   }
 
   .table-row:hover {
