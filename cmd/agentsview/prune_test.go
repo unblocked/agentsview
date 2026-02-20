@@ -226,6 +226,58 @@ func TestFormatBytes(t *testing.T) {
 	}
 }
 
+func TestPrunerMaxMessagesCountsUserOnly(t *testing.T) {
+	d := dbtest.OpenTestDB(t)
+
+	// Session with 1 user message + 49 assistant messages.
+	// max-messages=1 should match because only user messages
+	// are counted.
+	dbtest.SeedSession(t, d, "oneshot", "proj", func(s *db.Session) {
+		s.MessageCount = 50
+	})
+	msgs := []db.Message{dbtest.UserMsg("oneshot", 0, "do it")}
+	for i := 1; i < 50; i++ {
+		msgs = append(msgs,
+			dbtest.AsstMsg("oneshot", i, "working..."))
+	}
+	dbtest.SeedMessages(t, d, msgs...)
+
+	// Session with 5 user messages + 5 assistant messages.
+	// max-messages=1 should NOT match.
+	dbtest.SeedSession(t, d, "multi", "proj", func(s *db.Session) {
+		s.MessageCount = 10
+	})
+	dbtest.SeedMessages(t, d,
+		dbtest.UserMsg("multi", 0, "step 1"),
+		dbtest.AsstMsg("multi", 1, "done 1"),
+		dbtest.UserMsg("multi", 2, "step 2"),
+		dbtest.AsstMsg("multi", 3, "done 2"),
+		dbtest.UserMsg("multi", 4, "step 3"),
+		dbtest.AsstMsg("multi", 5, "done 3"),
+		dbtest.UserMsg("multi", 6, "step 4"),
+		dbtest.AsstMsg("multi", 7, "done 4"),
+		dbtest.UserMsg("multi", 8, "step 5"),
+		dbtest.AsstMsg("multi", 9, "done 5"),
+	)
+
+	pruner, buf := newTestPruner(t, d, "")
+	cfg := PruneConfig{
+		Filter: db.PruneFilter{MaxMessages: dbtest.Ptr(1)},
+		DryRun: true,
+	}
+
+	if err := pruner.Prune(cfg); err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "Found 1 sessions") {
+		t.Errorf(
+			"expected 1 match (oneshot only), got: %s", out,
+		)
+	}
+}
+
 func TestPrunerDryRun(t *testing.T) {
 	d := dbtest.OpenTestDB(t)
 

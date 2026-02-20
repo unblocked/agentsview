@@ -558,29 +558,58 @@ func TestGetProjects(t *testing.T) {
 }
 
 // setupPruneData inserts the standard sessions used by the prune
-// candidate filter tests.
+// candidate filter tests. Each session gets real message rows so
+// the user-message subquery in FindPruneCandidates works.
 func setupPruneData(t *testing.T, d *DB) {
 	t.Helper()
+	// s1: 2 user messages
 	insertSession(t, d, "s1", "spicytakes", func(s *Session) {
 		s.FirstMessage = Ptr("You are a code reviewer")
 		s.EndedAt = Ptr("2024-01-15T00:00:00Z")
 		s.MessageCount = 2
 	})
+	insertMessages(t, d,
+		userMsg("s1", 0, "You are a code reviewer"),
+		userMsg("s1", 1, "Review this"),
+	)
+	// s2: 2 user messages
 	insertSession(t, d, "s2", "spicytakes", func(s *Session) {
 		s.FirstMessage = Ptr("Analyze this blog post")
 		s.EndedAt = Ptr("2024-03-01T00:00:00Z")
 		s.MessageCount = 2
 	})
+	insertMessages(t, d,
+		userMsg("s2", 0, "Analyze this blog post"),
+		userMsg("s2", 1, "More analysis"),
+	)
+	// s3: 2 user messages
 	insertSession(t, d, "s3", "roborev", func(s *Session) {
 		s.FirstMessage = Ptr("You are a code reviewer")
 		s.EndedAt = Ptr("2024-03-01T00:00:00Z")
 		s.MessageCount = 2
 	})
+	insertMessages(t, d,
+		userMsg("s3", 0, "You are a code reviewer"),
+		userMsg("s3", 1, "Check this file"),
+	)
+	// s4: 5 user messages + 5 assistant messages = 10 total
 	insertSession(t, d, "s4", "spicytakes", func(s *Session) {
 		s.FirstMessage = Ptr("Help me refactor")
 		s.EndedAt = Ptr("2024-06-01T00:00:00Z")
 		s.MessageCount = 10
 	})
+	insertMessages(t, d,
+		userMsg("s4", 0, "Help me refactor"),
+		asstMsg("s4", 1, "Sure, here's a plan"),
+		userMsg("s4", 2, "Do step 1"),
+		asstMsg("s4", 3, "Done with step 1"),
+		userMsg("s4", 4, "Do step 2"),
+		asstMsg("s4", 5, "Done with step 2"),
+		userMsg("s4", 6, "Do step 3"),
+		asstMsg("s4", 7, "Done with step 3"),
+		userMsg("s4", 8, "Looks good"),
+		asstMsg("s4", 9, "Thanks"),
+	)
 }
 
 func TestFindPruneCandidates(t *testing.T) {
@@ -776,13 +805,24 @@ func TestFindPruneCandidatesLikeEscaping(t *testing.T) {
 func TestFindPruneCandidatesMaxMessagesSentinel(t *testing.T) {
 	d := testDB(t)
 
+	// m1: 0 user messages
 	insertSession(t, d, "m1", "p", func(s *Session) {
 		s.MessageCount = 0
 	})
+	// m2: 1 user message (default from insertSession)
 	insertSession(t, d, "m2", "p")
+	insertMessages(t, d, userMsg("m2", 0, "hello"))
+	// m3: 3 user messages + 2 assistant = 5 total
 	insertSession(t, d, "m3", "p", func(s *Session) {
 		s.MessageCount = 5
 	})
+	insertMessages(t, d,
+		userMsg("m3", 0, "msg1"),
+		asstMsg("m3", 1, "reply1"),
+		userMsg("m3", 2, "msg2"),
+		asstMsg("m3", 3, "reply2"),
+		userMsg("m3", 4, "msg3"),
+	)
 
 	tests := []struct {
 		name   string

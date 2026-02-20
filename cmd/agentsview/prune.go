@@ -30,7 +30,7 @@ func parsePruneFlags(args []string) (PruneConfig, error) {
 	)
 	maxMessages := fs.Int(
 		"max-messages", -1,
-		"Sessions with at most N messages",
+		"Sessions with at most N user messages",
 	)
 	before := fs.String(
 		"before", "",

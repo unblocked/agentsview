@@ -473,7 +473,7 @@ func scanSessionRows(rows *sql.Rows) ([]Session, error) {
 // Filters combine with AND. At least one must be set.
 type PruneFilter struct {
 	Project      string // substring match (LIKE '%x%')
-	MaxMessages  *int   // message_count <= N (nil = no filter)
+	MaxMessages  *int   // user messages <= N (nil = no filter)
 	Before       string // ended_at < date (YYYY-MM-DD)
 	FirstMessage string // first_message LIKE 'prefix%'
 }
@@ -512,7 +512,9 @@ func (db *DB) FindPruneCandidates(
 		args = append(args, "%"+escapeLike(f.Project)+"%")
 	}
 	if f.MaxMessages != nil {
-		where += " AND message_count <= ?"
+		where += ` AND (SELECT COUNT(*) FROM messages
+			WHERE messages.session_id = sessions.id
+			AND messages.role = 'user') <= ?`
 		args = append(args, *f.MaxMessages)
 	}
 	if f.Before != "" {

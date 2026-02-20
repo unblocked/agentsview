@@ -44,6 +44,41 @@ func OpenTestDB(t *testing.T) *db.DB {
 	return d
 }
 
+// SeedMessages inserts messages into the database, failing the
+// test on error.
+func SeedMessages(t *testing.T, d *db.DB, msgs ...db.Message) {
+	t.Helper()
+	if err := d.InsertMessages(msgs); err != nil {
+		t.Fatalf("SeedMessages: %v", err)
+	}
+}
+
+// UserMsg creates a user message for the given session.
+func UserMsg(
+	sid string, ordinal int, content string,
+) db.Message {
+	return db.Message{
+		SessionID:     sid,
+		Ordinal:       ordinal,
+		Role:          "user",
+		Content:       content,
+		ContentLength: len(content),
+	}
+}
+
+// AsstMsg creates an assistant message for the given session.
+func AsstMsg(
+	sid string, ordinal int, content string,
+) db.Message {
+	return db.Message{
+		SessionID:     sid,
+		Ordinal:       ordinal,
+		Role:          "assistant",
+		Content:       content,
+		ContentLength: len(content),
+	}
+}
+
 // SeedSession creates and upserts a session with sensible
 // defaults. Override any field via the opts functions.
 func SeedSession(
