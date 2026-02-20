@@ -149,7 +149,7 @@
 
 <AppHeader />
 
-<ThreeColumnLayout>
+<ThreeColumnLayout showMinimap={!!sessions.activeSessionId}>
   {#snippet sidebar()}
     <SessionList />
   {/snippet}
@@ -165,16 +165,14 @@
     {/if}
   {/snippet}
 
-  {#if sessions.activeSessionId}
-    {#snippet minimap()}
-      <Minimap
-        {scrollOffset}
-        {scrollHeight}
-        {clientHeight}
-        onClickIndex={handleMinimapClick}
-      />
-    {/snippet}
-  {/if}
+  {#snippet minimap()}
+    <Minimap
+      {scrollOffset}
+      {scrollHeight}
+      {clientHeight}
+      onClickIndex={handleMinimapClick}
+    />
+  {/snippet}
 </ThreeColumnLayout>
 
 <StatusBar />

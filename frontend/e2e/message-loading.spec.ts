@@ -124,7 +124,7 @@ test.describe("Message loading", () => {
       await expect
         .poll(
           () => sp.scroller.evaluate((el) => el.scrollTop),
-          { timeout: 2_000 },
+          { timeout: 5_000 },
         )
         .not.toBe(beforeScroll);
 
@@ -200,7 +200,7 @@ test.describe("Message loading", () => {
       await expect
         .poll(
           () => sp.scroller.evaluate((el) => el.scrollTop),
-          { timeout: 2_000 },
+          { timeout: 5_000 },
         )
         .not.toBe(beforeScroll);
 

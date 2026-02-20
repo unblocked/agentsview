@@ -5,9 +5,15 @@
     sidebar: Snippet;
     content: Snippet;
     minimap?: Snippet;
+    showMinimap?: boolean;
   }
 
-  let { sidebar, content, minimap }: Props = $props();
+  let {
+    sidebar,
+    content,
+    minimap,
+    showMinimap = false,
+  }: Props = $props();
 </script>
 
 <div class="layout">
@@ -17,7 +23,7 @@
   <main class="content">
     {@render content()}
   </main>
-  {#if minimap}
+  {#if showMinimap && minimap}
     <aside class="minimap">
       {@render minimap()}
     </aside>
