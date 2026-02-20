@@ -11,11 +11,18 @@ export class SessionsPage {
   readonly scroller: Locator;
   readonly minimap: Locator;
 
+  readonly sortButton: Locator;
+  readonly projectSelect: Locator;
+  readonly sessionListHeader: Locator;
+
   constructor(readonly page: Page) {
     this.sessionItems = page.locator("button.session-item");
     this.messageRows = page.locator(".virtual-row");
     this.scroller = page.locator(".message-list-scroll");
     this.minimap = page.locator(".minimap-container");
+    this.sortButton = page.getByLabel("Toggle sort order");
+    this.projectSelect = page.locator("select.project-select");
+    this.sessionListHeader = page.locator(".session-list-header");
   }
 
   async goto() {
@@ -41,6 +48,20 @@ export class SessionsPage {
     await expect(this.messageRows.first()).toBeVisible({
       timeout: 5_000,
     });
+  }
+
+  async toggleSortOrder(times: number = 1) {
+    for (let i = 0; i < times; i++) {
+      await this.sortButton.click();
+    }
+  }
+
+  async filterByProject(project: string) {
+    await this.projectSelect.selectOption(project);
+  }
+
+  async clearProjectFilter() {
+    await this.projectSelect.selectOption("");
   }
 
   async minimapBoundingBox() {
