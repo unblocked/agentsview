@@ -28,14 +28,14 @@ export class SessionsPage {
   async goto() {
     await this.page.goto("/");
     await expect(this.sessionItems.first()).toBeVisible({
-      timeout: 10_000,
+      timeout: 5_000,
     });
   }
 
   async selectSession(index: number = 0) {
     await this.sessionItems.nth(index).click();
     await expect(this.messageRows.first()).toBeVisible({
-      timeout: 5_000,
+      timeout: 3_000,
     });
   }
 
@@ -46,7 +46,7 @@ export class SessionsPage {
   async selectLastSession() {
     await this.sessionItems.last().click();
     await expect(this.messageRows.first()).toBeVisible({
-      timeout: 5_000,
+      timeout: 3_000,
     });
   }
 
@@ -65,7 +65,7 @@ export class SessionsPage {
   }
 
   async minimapBoundingBox() {
-    await expect(this.minimap).toBeVisible();
+    await expect(this.minimap).toBeVisible({ timeout: 10_000 });
     const box = await this.minimap.boundingBox();
     expect(box).toBeTruthy();
     return box!;

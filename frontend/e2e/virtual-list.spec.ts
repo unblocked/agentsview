@@ -119,7 +119,7 @@ test.describe("Virtual list behavior", () => {
       page.getByRole("button", {
         name: /Hello from deep-session 1000/i,
       }),
-    ).toBeVisible({ timeout: 10_000 });
+    ).toBeVisible({ timeout: 5_000 });
   });
 
   test("keeps loading after dragging to the end of an unloaded range", async ({
@@ -142,6 +142,6 @@ test.describe("Virtual list behavior", () => {
       page.getByRole("button", {
         name: /Hello from deep-session 1999/i,
       }),
-    ).toBeVisible({ timeout: 15_000 });
+    ).toBeVisible({ timeout: 10_000 });
   });
 });

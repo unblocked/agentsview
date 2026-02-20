@@ -20,13 +20,11 @@ test.describe("Message loading", () => {
     await sp.goto();
     await sp.selectFirstSession();
 
-    // Wait until no new message requests arrive for 1s
-    await expect
-      .poll(() => messageRequests.length, { timeout: 10_000 })
-      .toBeGreaterThan(0);
+    // Wait for at least one message request to have fired
+    expect(messageRequests.length).toBeGreaterThan(0);
     const settled = await stableValue(
       () => messageRequests.length,
-      1000,
+      500,
     );
     expect(settled).toBe(true);
 
@@ -39,32 +37,20 @@ test.describe("Message loading", () => {
   test("large session requests capped minimap payload", async ({
     page,
   }) => {
-    const minimapRequests: string[] = [];
-    page.on("request", (req) => {
-      if (req.url().includes("/minimap")) {
-        minimapRequests.push(req.url());
-      }
-    });
-
     const sp = new SessionsPage(page);
     await sp.goto();
+
+    // Set up wait before clicking so we don't miss the request
+    const minimapPromise = page.waitForRequest((req) =>
+      req.url().includes(
+        "/sessions/test-session-xlarge-5500/minimap",
+      ),
+    );
     await sp.selectFirstSession();
 
-    // Wait for the minimap request to arrive
-    await expect
-      .poll(() => {
-        return minimapRequests.find((u) =>
-          u.includes(
-            "/sessions/test-session-xlarge-5500/minimap",
-          ),
-        );
-      }, { timeout: 5_000 })
-      .toBeTruthy();
-
-    const largeReq = minimapRequests.find((u) =>
-      u.includes("/sessions/test-session-xlarge-5500/minimap"),
-    )!;
-    const parsed = new URL(largeReq);
+    const largeReq = await minimapPromise;
+    const largeUrl = largeReq.url();
+    const parsed = new URL(largeUrl);
     const max = parsed.searchParams.get("max");
     expect(max).toBeTruthy();
     expect(Number(max)).toBe(1200);
@@ -112,7 +98,7 @@ test.describe("Message loading", () => {
       await expect
         .poll(
           () => sp.scroller.evaluate((el) => el.scrollTop),
-          { timeout: 3_000 },
+          { timeout: 2_000 },
         )
         .toBeGreaterThan(500);
     },
@@ -121,8 +107,6 @@ test.describe("Message loading", () => {
   test(
     "minimap jump to middle does not fight follow-up scrolling",
     async ({ page }) => {
-      test.setTimeout(45_000);
-
       const sp = new SessionsPage(page);
       await sp.goto();
       await sp.selectFirstSession();
@@ -140,7 +124,7 @@ test.describe("Message loading", () => {
       await expect
         .poll(
           () => sp.scroller.evaluate((el) => el.scrollTop),
-          { timeout: 3_000 },
+          { timeout: 2_000 },
         )
         .not.toBe(beforeScroll);
 
@@ -157,8 +141,6 @@ test.describe("Message loading", () => {
   test(
     "minimap top click maps to newest in default sort",
     async ({ page }) => {
-      test.setTimeout(45_000);
-
       const sp = new SessionsPage(page);
       await sp.goto();
       await sp.selectFirstSession();
@@ -184,7 +166,7 @@ test.describe("Message loading", () => {
       await expect
         .poll(
           () => sp.scroller.evaluate((el) => el.scrollTop),
-          { timeout: 3_000 },
+          { timeout: 2_000 },
         )
         .toBeLessThan(finalPosition - 150);
     },
@@ -193,8 +175,6 @@ test.describe("Message loading", () => {
   test(
     "minimap jump works with reversed sort (oldest first)",
     async ({ page }) => {
-      test.setTimeout(45_000);
-
       const sp = new SessionsPage(page);
       await sp.goto();
       await sp.selectFirstSession();
@@ -220,7 +200,7 @@ test.describe("Message loading", () => {
       await expect
         .poll(
           () => sp.scroller.evaluate((el) => el.scrollTop),
-          { timeout: 3_000 },
+          { timeout: 2_000 },
         )
         .not.toBe(beforeScroll);
 
@@ -242,7 +222,7 @@ async function stableValue(
   durationMs: number,
   pollMs: number = 100,
 ): Promise<boolean> {
-  const deadline = Date.now() + durationMs * 3;
+  const deadline = Date.now() + durationMs * 1.5;
   let last = fn();
   let stableStart = Date.now();
 
@@ -263,7 +243,7 @@ async function stableValue(
 /** Waits for the virtual row count to stabilize (progressive loading done). */
 async function waitForRowCountStable(
   page: import("@playwright/test").Page,
-  durationMs: number = 2000,
+  durationMs: number = 800,
 ) {
   await expect
     .poll(
@@ -273,14 +253,14 @@ async function waitForRowCountStable(
           .count();
         return count;
       },
-      { timeout: 10_000 },
+      { timeout: 5_000 },
     )
     .toBeGreaterThan(0);
 
   // Wait for count to stop changing
   let lastCount = await page.locator(".virtual-row").count();
   let stableStart = Date.now();
-  const deadline = Date.now() + durationMs * 3;
+  const deadline = Date.now() + durationMs * 1.5;
 
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 200));

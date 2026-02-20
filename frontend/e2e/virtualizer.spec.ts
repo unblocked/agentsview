@@ -118,7 +118,7 @@ test.describe("Virtualizer measurement", () => {
     await page.goto("/");
     await expect(
       page.locator("button.session-item").first(),
-    ).toBeVisible({ timeout: 10_000 });
+    ).toBeVisible({ timeout: 5_000 });
   });
 
   test("items are measured to actual DOM height", async ({
@@ -299,7 +299,7 @@ test.describe("Mixed content rendering", () => {
     await page.goto("/");
     await expect(
       page.locator("button.session-item").first(),
-    ).toBeVisible({ timeout: 10_000 });
+    ).toBeVisible({ timeout: 5_000 });
   });
 
   test("tool group renders for consecutive tool-only messages", async ({

@@ -13,7 +13,7 @@ test.describe("Navigation", () => {
     await sp.selectFirstSession();
 
     const canvas = sp.page.locator("canvas");
-    await expect(canvas).toBeVisible();
+    await expect(canvas).toBeVisible({ timeout: 10_000 });
 
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
@@ -37,9 +37,8 @@ test.describe("Navigation", () => {
     await expect(sp.sessionItems.first()).toHaveClass(/active/);
   });
 
-  test("empty state shows when no session selected", async () => {
-    const empty = sp.page.locator(".empty-state");
-    await expect(empty).toBeVisible();
-    await expect(empty).toContainText("Select a session");
+  test("analytics page shows when no session selected", async () => {
+    const analytics = sp.page.locator(".analytics-page");
+    await expect(analytics).toBeVisible();
   });
 });

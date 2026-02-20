@@ -28,6 +28,7 @@ echo "Starting e2e server on :8090..."
 AGENT_VIEWER_DATA_DIR="$TMPDIR" \
 CLAUDE_PROJECTS_DIR="$EMPTY_DIR" \
 CODEX_SESSIONS_DIR="$EMPTY_DIR" \
+GEMINI_DIR="$EMPTY_DIR" \
 exec "$TMPDIR/agentsview" \
   -port 8090 \
   -no-browser
