@@ -5,11 +5,17 @@
 export class LRUCache<K, V> {
   private map = new Map<K, V>();
 
-  constructor(private capacity: number) {}
+  constructor(private capacity: number) {
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      throw new Error(
+        `LRUCache capacity must be a positive integer, got ${capacity}`,
+      );
+    }
+  }
 
   get(key: K): V | undefined {
-    const value = this.map.get(key);
-    if (value === undefined) return undefined;
+    if (!this.map.has(key)) return undefined;
+    const value = this.map.get(key)!;
     // Delete and re-insert to mark as most recently used
     this.map.delete(key);
     this.map.set(key, value);

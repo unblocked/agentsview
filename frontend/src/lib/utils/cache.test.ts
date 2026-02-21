@@ -102,4 +102,44 @@ describe("LRUCache", () => {
     expect(c.get("b")).toBe(2);
     expect(c.size).toBe(1);
   });
+
+  it("stores and retrieves undefined values", () => {
+    const c = new LRUCache<string, undefined>(3);
+    c.set("a", undefined);
+    c.set("b", undefined);
+    c.set("c", undefined);
+    expect(c.get("a")).toBeUndefined();
+    expect(c.size).toBe(3);
+  });
+
+  it("promotes entries with undefined values on get", () => {
+    const c = new LRUCache<string, number | undefined>(2);
+    c.set("a", undefined);
+    c.set("b", 1);
+    c.get("a"); // promote "a" — now "b" is LRU
+    c.set("c", 2); // evicts "b"
+    expect(c.get("b")).toBeUndefined();
+    expect(c.size).toBe(2);
+    expect(c.get("a")).toBeUndefined();
+    // "a" is still present — verify by checking size after access
+    expect(c.size).toBe(2);
+  });
+
+  it("throws on zero capacity", () => {
+    expect(() => new LRUCache<string, number>(0)).toThrow(
+      /capacity must be a positive integer/,
+    );
+  });
+
+  it("throws on negative capacity", () => {
+    expect(() => new LRUCache<string, number>(-1)).toThrow(
+      /capacity must be a positive integer/,
+    );
+  });
+
+  it("throws on non-integer capacity", () => {
+    expect(() => new LRUCache<string, number>(2.5)).toThrow(
+      /capacity must be a positive integer/,
+    );
+  });
 });
