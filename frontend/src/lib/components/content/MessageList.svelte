@@ -17,8 +17,29 @@
   let scrollRaf: number | null = $state(null);
   let lastScrollRequest = 0;
 
+  const SYSTEM_MSG_PREFIXES = [
+    "This session is being continued",
+    "[Request interrupted",
+    "<task-notification>",
+    "<command-message>",
+    "<command-name>",
+    "<local-command-",
+    "Stop hook feedback:",
+  ];
+
+  function isSystemMessage(m: Message): boolean {
+    if (m.role !== "user") return false;
+    const trimmed = m.content.trim();
+    return SYSTEM_MSG_PREFIXES.some(
+      (p) => trimmed.startsWith(p),
+    );
+  }
+
   let filteredMessages: Message[] = $derived.by(() => {
     let msgs = messages.messages;
+
+    // Filter system-injected user messages
+    msgs = msgs.filter((m) => !isSystemMessage(m));
 
     // Filter thinking-only messages
     if (!ui.showThinking) {
