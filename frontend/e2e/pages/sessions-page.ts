@@ -7,6 +7,7 @@ import { expect, type Locator, type Page } from "@playwright/test";
  */
 export class SessionsPage {
   readonly sessionItems: Locator;
+  readonly sessionListScroll: Locator;
   readonly messageRows: Locator;
   readonly scroller: Locator;
 
@@ -20,6 +21,7 @@ export class SessionsPage {
 
   constructor(readonly page: Page) {
     this.sessionItems = page.locator("button.session-item");
+    this.sessionListScroll = page.locator(".session-list-scroll");
     this.messageRows = page.locator(".virtual-row");
     this.scroller = page.locator(".message-list-scroll");
     this.sortButton = page.getByLabel("Toggle sort order");

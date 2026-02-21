@@ -4,6 +4,11 @@ import type { SessionsPage } from "../pages/sessions-page";
 
 type ScrollPosition = "top" | "bottom" | "middle" | number;
 
+/** Returns the current scrollTop of a scrollable container. */
+export function getScrollTop(locator: Locator): Promise<number> {
+  return locator.evaluate((el) => el.scrollTop);
+}
+
 /**
  * Scrolls a virtual list container to the given position
  * and dispatches a scroll event to trigger virtualizer updates.

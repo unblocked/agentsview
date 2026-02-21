@@ -3,10 +3,16 @@ import {
   createMockSessions,
   handleSessionsRoute,
 } from "./helpers/mock-sessions";
-import { scrollListTo } from "./helpers/virtual-list-helpers";
+import {
+  getScrollTop,
+  scrollListTo,
+} from "./helpers/virtual-list-helpers";
+import { SessionsPage } from "./pages/sessions-page";
 
 const TOTAL_SESSIONS = 500;
 const DEEP_SESSIONS = 2000;
+const MIDDLE_INDEX = Math.floor(DEEP_SESSIONS / 2);
+const LAST_INDEX = DEEP_SESSIONS - 1;
 
 const sessions = createMockSessions(
   TOTAL_SESSIONS,
@@ -23,6 +29,8 @@ const deepSessions = createMockSessions(
 const tinySessions = [sessions[0]];
 
 test.describe("Virtual list behavior", () => {
+  let sp: SessionsPage;
+
   test.beforeEach(async ({ page }) => {
     await page.route(
       "**/api/v1/sessions*",
@@ -45,90 +53,74 @@ test.describe("Virtual list behavior", () => {
         },
       });
     });
+
+    sp = new SessionsPage(page);
+    await page.goto("/");
+    await expect(sp.sessionItems.first()).toBeVisible();
   });
 
-  test("renders end of list when scrolling down", async ({ page }) => {
-    await page.goto("/");
-    const list = page.locator(".session-list-scroll");
-
-    await expect(page.locator("button.session-item").first()).toBeVisible();
-
-    await scrollListTo(list, "bottom");
+  test("renders end of list when scrolling down", async () => {
+    await scrollListTo(sp.sessionListScroll, "bottom");
 
     await expect(
-      page.getByText(`Hello from session ${TOTAL_SESSIONS - 1}`),
+      sp.page.getByText(
+        `Hello from session ${TOTAL_SESSIONS - 1}`,
+      ),
     ).toBeVisible();
   });
 
-  test("clamps scroll position when filtering", async ({
-    page,
-  }) => {
-    await page.goto("/");
-    const list = page.locator(".session-list-scroll");
-
-    await scrollListTo(list, 2000);
+  test("clamps scroll position when filtering", async () => {
+    await scrollListTo(sp.sessionListScroll, 2000);
 
     await expect
-      .poll(async () => {
-        return await list.evaluate((el) => el.scrollTop);
-      })
+      .poll(() => getScrollTop(sp.sessionListScroll))
       .toBeGreaterThan(0);
 
-    const projectSelect = page.locator("select.project-select");
-    await projectSelect.selectOption("tiny");
+    await sp.filterByProject("tiny");
 
     await expect
-      .poll(
-        async () => {
-          return await list.evaluate((el) => el.scrollTop);
-        },
-        { timeout: 2000 },
-      )
+      .poll(() => getScrollTop(sp.sessionListScroll), {
+        timeout: 2000,
+      })
       .toBe(0);
   });
 
-  test("keeps loading after dragging into an unloaded middle range", async ({
-    page,
-  }) => {
-    await page.goto("/");
-    const list = page.locator(".session-list-scroll");
-    const projectSelect = page.locator("select.project-select");
-
-    await projectSelect.selectOption("deep");
+  test("keeps loading after dragging into an unloaded middle range", async () => {
+    await sp.filterByProject("deep");
     await expect(
-      page.getByRole("button", {
+      sp.page.getByRole("button", {
         name: /Hello from deep-session 0/i,
       }),
     ).toBeVisible();
 
-    await scrollListTo(list, "middle");
+    await scrollListTo(sp.sessionListScroll, "middle");
 
     await expect(
-      page.getByRole("button", {
-        name: /Hello from deep-session 1000/i,
+      sp.page.getByRole("button", {
+        name: new RegExp(
+          `Hello from deep-session ${MIDDLE_INDEX}`,
+          "i",
+        ),
       }),
     ).toBeVisible({ timeout: 5_000 });
   });
 
-  test("keeps loading after dragging to the end of an unloaded range", async ({
-    page,
-  }) => {
-    await page.goto("/");
-    const list = page.locator(".session-list-scroll");
-    const projectSelect = page.locator("select.project-select");
-
-    await projectSelect.selectOption("deep");
+  test("keeps loading after dragging to the end of an unloaded range", async () => {
+    await sp.filterByProject("deep");
     await expect(
-      page.getByRole("button", {
+      sp.page.getByRole("button", {
         name: /Hello from deep-session 0/i,
       }),
     ).toBeVisible();
 
-    await scrollListTo(list, "bottom");
+    await scrollListTo(sp.sessionListScroll, "bottom");
 
     await expect(
-      page.getByRole("button", {
-        name: /Hello from deep-session 1999/i,
+      sp.page.getByRole("button", {
+        name: new RegExp(
+          `Hello from deep-session ${LAST_INDEX}`,
+          "i",
+        ),
       }),
     ).toBeVisible({ timeout: 10_000 });
   });
