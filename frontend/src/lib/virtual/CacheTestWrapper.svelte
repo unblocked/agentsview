@@ -1,20 +1,22 @@
 <script lang="ts">
   import VirtualizerTest from './VirtualizerTest.svelte';
 
+  type Options = { measureCacheKey: string; count: number };
+
   interface Props {
     type: 'element' | 'window';
-    controller: { 
-        initialOptions: any; 
-        updateOptions?: (opts: any) => void 
+    controller: {
+        initialOptions: Options;
+        updateOptions: (opts: Options) => void;
     };
-    onInstanceChange: (inst: any) => void;
+    onInstanceChange: (inst: unknown) => void;
   }
 
   let { type, controller, onInstanceChange }: Props = $props();
   
   let options = $state(controller.initialOptions);
 
-  controller.updateOptions = (newOpts: any) => {
+  controller.updateOptions = (newOpts: Options) => {
     options = newOpts;
   };
 </script>
