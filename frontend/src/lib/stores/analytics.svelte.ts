@@ -51,11 +51,15 @@ type Panel =
   | "tools"
   | "topSessions";
 
+export type Granularity = "day" | "week" | "month";
+export type HeatmapMetric = "messages" | "sessions";
+export type TopSessionsMetric = "messages" | "duration";
+
 class AnalyticsStore {
   from: string = $state(daysAgo(30));
   to: string = $state(today());
-  granularity: string = $state("day");
-  metric: string = $state("messages");
+  granularity: Granularity = $state("day");
+  metric: HeatmapMetric = $state("messages");
   selectedDate: string | null = $state(null);
   project: string = $state("");
 
@@ -68,7 +72,7 @@ class AnalyticsStore {
   velocity = $state<VelocityResponse | null>(null);
   tools = $state<ToolsAnalyticsResponse | null>(null);
   topSessions = $state<TopSessionsResponse | null>(null);
-  topMetric: string = $state("messages");
+  topMetric: TopSessionsMetric = $state("messages");
 
   loading = $state({
     summary: false,
@@ -94,8 +98,7 @@ class AnalyticsStore {
     topSessions: null,
   });
 
-  // Per-panel version counters to avoid cross-panel conflicts.
-  private versions = {
+  private versions: Record<Panel, number> = {
     summary: 0,
     activity: 0,
     heatmap: 0,
@@ -122,7 +125,6 @@ class AnalyticsStore {
     return p;
   }
 
-  // Returns params narrowed to selectedDate when one is active.
   private filterParams(
     opts: { includeProject?: boolean } = {},
   ): AnalyticsParams {
@@ -142,6 +144,31 @@ class AnalyticsStore {
     return this.baseParams({ includeProject });
   }
 
+  private async executeFetch<T>(
+    panel: Panel,
+    fetchRequest: () => Promise<T>,
+    onSuccess: (data: T) => void,
+  ) {
+    const v = ++this.versions[panel];
+    this.loading[panel] = true;
+    this.errors[panel] = null;
+    try {
+      const data = await fetchRequest();
+      if (this.versions[panel] === v) {
+        onSuccess(data);
+      }
+    } catch (e) {
+      if (this.versions[panel] === v) {
+        this.errors[panel] =
+          e instanceof Error ? e.message : "Failed to load";
+      }
+    } finally {
+      if (this.versions[panel] === v) {
+        this.loading[panel] = false;
+      }
+    }
+  }
+
   async fetchAll() {
     await Promise.all([
       this.fetchSummary(),
@@ -157,217 +184,92 @@ class AnalyticsStore {
   }
 
   async fetchSummary() {
-    const v = ++this.versions.summary;
-    this.loading.summary = true;
-    this.errors.summary = null;
-    try {
-      const data = await getAnalyticsSummary(this.filterParams());
-      if (this.versions.summary === v) {
-        this.summary = data;
-      }
-    } catch (e) {
-      if (this.versions.summary === v) {
-        this.errors.summary =
-          e instanceof Error ? e.message : "Failed to load";
-      }
-    } finally {
-      if (this.versions.summary === v) {
-        this.loading.summary = false;
-      }
-    }
+    await this.executeFetch(
+      "summary",
+      () => getAnalyticsSummary(this.filterParams()),
+      (data) => { this.summary = data; },
+    );
   }
 
   async fetchActivity() {
-    const v = ++this.versions.activity;
-    this.loading.activity = true;
-    this.errors.activity = null;
-    try {
-      const data = await getAnalyticsActivity({
+    await this.executeFetch(
+      "activity",
+      () => getAnalyticsActivity({
         ...this.filterParams(),
         granularity: this.granularity,
-      });
-      if (this.versions.activity === v) {
-        this.activity = data;
-      }
-    } catch (e) {
-      if (this.versions.activity === v) {
-        this.errors.activity =
-          e instanceof Error ? e.message : "Failed to load";
-      }
-    } finally {
-      if (this.versions.activity === v) {
-        this.loading.activity = false;
-      }
-    }
+      }),
+      (data) => { this.activity = data; },
+    );
   }
 
   async fetchHeatmap() {
-    const v = ++this.versions.heatmap;
-    this.loading.heatmap = true;
-    this.errors.heatmap = null;
-    try {
-      const data = await getAnalyticsHeatmap({
+    await this.executeFetch(
+      "heatmap",
+      () => getAnalyticsHeatmap({
         ...this.baseParams(),
         metric: this.metric,
-      });
-      if (this.versions.heatmap === v) {
-        this.heatmap = data;
-      }
-    } catch (e) {
-      if (this.versions.heatmap === v) {
-        this.errors.heatmap =
-          e instanceof Error ? e.message : "Failed to load";
-      }
-    } finally {
-      if (this.versions.heatmap === v) {
-        this.loading.heatmap = false;
-      }
-    }
+      }),
+      (data) => { this.heatmap = data; },
+    );
   }
 
   // Projects chart always shows all projects (no project
   // filter) so the selected project can be highlighted in
   // context rather than shown in isolation.
   async fetchProjects() {
-    const v = ++this.versions.projects;
-    this.loading.projects = true;
-    this.errors.projects = null;
-    try {
-      const data = await getAnalyticsProjects(
+    await this.executeFetch(
+      "projects",
+      () => getAnalyticsProjects(
         this.filterParams({ includeProject: false }),
-      );
-      if (this.versions.projects === v) {
-        this.projects = data;
-      }
-    } catch (e) {
-      if (this.versions.projects === v) {
-        this.errors.projects =
-          e instanceof Error ? e.message : "Failed to load";
-      }
-    } finally {
-      if (this.versions.projects === v) {
-        this.loading.projects = false;
-      }
-    }
+      ),
+      (data) => { this.projects = data; },
+    );
   }
 
   async fetchHourOfWeek() {
-    const v = ++this.versions.hourOfWeek;
-    this.loading.hourOfWeek = true;
-    this.errors.hourOfWeek = null;
-    try {
-      const data = await getAnalyticsHourOfWeek(
-        this.baseParams(),
-      );
-      if (this.versions.hourOfWeek === v) {
-        this.hourOfWeek = data;
-      }
-    } catch (e) {
-      if (this.versions.hourOfWeek === v) {
-        this.errors.hourOfWeek =
-          e instanceof Error ? e.message : "Failed to load";
-      }
-    } finally {
-      if (this.versions.hourOfWeek === v) {
-        this.loading.hourOfWeek = false;
-      }
-    }
+    await this.executeFetch(
+      "hourOfWeek",
+      () => getAnalyticsHourOfWeek(this.baseParams()),
+      (data) => { this.hourOfWeek = data; },
+    );
   }
 
   async fetchSessionShape() {
-    const v = ++this.versions.sessionShape;
-    this.loading.sessionShape = true;
-    this.errors.sessionShape = null;
-    try {
-      const data = await getAnalyticsSessionShape(
-        this.filterParams(),
-      );
-      if (this.versions.sessionShape === v) {
-        this.sessionShape = data;
-      }
-    } catch (e) {
-      if (this.versions.sessionShape === v) {
-        this.errors.sessionShape =
-          e instanceof Error ? e.message : "Failed to load";
-      }
-    } finally {
-      if (this.versions.sessionShape === v) {
-        this.loading.sessionShape = false;
-      }
-    }
+    await this.executeFetch(
+      "sessionShape",
+      () => getAnalyticsSessionShape(this.filterParams()),
+      (data) => { this.sessionShape = data; },
+    );
   }
 
   async fetchVelocity() {
-    const v = ++this.versions.velocity;
-    this.loading.velocity = true;
-    this.errors.velocity = null;
-    try {
-      const data = await getAnalyticsVelocity(
-        this.filterParams(),
-      );
-      if (this.versions.velocity === v) {
-        this.velocity = data;
-      }
-    } catch (e) {
-      if (this.versions.velocity === v) {
-        this.errors.velocity =
-          e instanceof Error ? e.message : "Failed to load";
-      }
-    } finally {
-      if (this.versions.velocity === v) {
-        this.loading.velocity = false;
-      }
-    }
+    await this.executeFetch(
+      "velocity",
+      () => getAnalyticsVelocity(this.filterParams()),
+      (data) => { this.velocity = data; },
+    );
   }
 
   async fetchTools() {
-    const v = ++this.versions.tools;
-    this.loading.tools = true;
-    this.errors.tools = null;
-    try {
-      const data = await getAnalyticsTools(
-        this.filterParams(),
-      );
-      if (this.versions.tools === v) {
-        this.tools = data;
-      }
-    } catch (e) {
-      if (this.versions.tools === v) {
-        this.errors.tools =
-          e instanceof Error ? e.message : "Failed to load";
-      }
-    } finally {
-      if (this.versions.tools === v) {
-        this.loading.tools = false;
-      }
-    }
+    await this.executeFetch(
+      "tools",
+      () => getAnalyticsTools(this.filterParams()),
+      (data) => { this.tools = data; },
+    );
   }
 
   async fetchTopSessions() {
-    const v = ++this.versions.topSessions;
-    this.loading.topSessions = true;
-    this.errors.topSessions = null;
-    try {
-      const data = await getAnalyticsTopSessions({
+    await this.executeFetch(
+      "topSessions",
+      () => getAnalyticsTopSessions({
         ...this.filterParams(),
         metric: this.topMetric,
-      });
-      if (this.versions.topSessions === v) {
-        this.topSessions = data;
-      }
-    } catch (e) {
-      if (this.versions.topSessions === v) {
-        this.errors.topSessions =
-          e instanceof Error ? e.message : "Failed to load";
-      }
-    } finally {
-      if (this.versions.topSessions === v) {
-        this.loading.topSessions = false;
-      }
-    }
+      }),
+      (data) => { this.topSessions = data; },
+    );
   }
 
-  setTopMetric(m: string) {
+  setTopMetric(m: TopSessionsMetric) {
     this.topMetric = m;
     this.fetchTopSessions();
   }
@@ -394,12 +296,12 @@ class AnalyticsStore {
     this.fetchTopSessions();
   }
 
-  setGranularity(g: string) {
+  setGranularity(g: Granularity) {
     this.granularity = g;
     this.fetchActivity();
   }
 
-  setMetric(m: string) {
+  setMetric(m: HeatmapMetric) {
     this.metric = m;
     this.fetchHeatmap();
   }

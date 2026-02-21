@@ -326,7 +326,9 @@ export function getAnalyticsSummary(
 }
 
 export function getAnalyticsActivity(
-  params: AnalyticsParams & { granularity?: string },
+  params: AnalyticsParams & {
+    granularity?: "day" | "week" | "month";
+  },
 ): Promise<ActivityResponse> {
   return fetchJSON(
     `/analytics/activity${buildQuery({ ...params })}`,
@@ -334,7 +336,9 @@ export function getAnalyticsActivity(
 }
 
 export function getAnalyticsHeatmap(
-  params: AnalyticsParams & { metric?: string },
+  params: AnalyticsParams & {
+    metric?: "messages" | "sessions";
+  },
 ): Promise<HeatmapResponse> {
   return fetchJSON(
     `/analytics/heatmap${buildQuery({ ...params })}`,
@@ -382,7 +386,9 @@ export function getAnalyticsTools(
 }
 
 export function getAnalyticsTopSessions(
-  params: AnalyticsParams & { metric?: string },
+  params: AnalyticsParams & {
+    metric?: "messages" | "duration";
+  },
 ): Promise<TopSessionsResponse> {
   return fetchJSON(
     `/analytics/top-sessions${buildQuery({ ...params })}`,
