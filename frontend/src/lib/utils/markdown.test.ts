@@ -22,29 +22,40 @@ function parseFullDocument(html: string): Document {
 }
 
 /**
- * Normalize an href value for security checking. Strips control
- * characters, decodes HTML entities and percent-encoding, and
- * lowercases — so obfuscated schemes like `java\tscript:` or
- * `&#106;avascript:` are detected.
+ * Normalize an href value for security checking. Iteratively
+ * decodes HTML entities and percent-encoding (up to 5 passes)
+ * until stable, strips control characters, and lowercases — so
+ * mixed/nested obfuscation like `%26#106%3Bavascript:` or
+ * `&#106;avascript:` is fully resolved and detected.
  */
 function normalizeHref(raw: string): string {
   const txt = document.createElement("textarea");
-  txt.innerHTML = raw;
-  const decoded = txt.value;
-  const stripped = decoded.replace(/[\x00-\x1f\x7f]/g, "");
-  try {
-    return decodeURIComponent(stripped).toLowerCase();
-  } catch {
-    return stripped.toLowerCase();
+  let prev = raw;
+  const maxPasses = 5;
+  for (let i = 0; i < maxPasses; i++) {
+    // HTML entity decode
+    txt.innerHTML = prev;
+    let cur = txt.value;
+    // Strip control characters
+    cur = cur.replace(/[\x00-\x1f\x7f]/g, "");
+    // Percent decode
+    try {
+      cur = decodeURIComponent(cur);
+    } catch {
+      // malformed percent sequences — keep as-is
+    }
+    if (cur === prev) break;
+    prev = cur;
   }
+  return prev.toLowerCase();
 }
 
 /**
  * Assert that no anchor in the rendered HTML has an href matching
- * the given dangerous scheme pattern. If no anchor is produced
- * (parser rejected the link syntax), verify the raw HTML also
- * contains no href with the scheme — so the test never passes
- * vacuously.
+ * the given dangerous scheme pattern. Always runs a raw-HTML scan
+ * (including unquoted attribute values) in addition to parsed
+ * anchor checks, so dangerous hrefs are caught even when the DOM
+ * parser strips or transforms them.
  */
 function assertNoAnchorScheme(
   html: string,
@@ -52,19 +63,21 @@ function assertNoAnchorScheme(
 ): void {
   const dom = parseHTML(html);
   const anchors = dom.querySelectorAll("a");
-  if (anchors.length === 0) {
-    const hrefPattern = /href\s*=\s*["']([^"']*)["']/gi;
-    let match: RegExpExecArray | null;
-    while ((match = hrefPattern.exec(html)) !== null) {
-      const norm = normalizeHref(match[1]!);
-      expect(norm).not.toMatch(scheme);
-    }
-    return;
-  }
   for (const a of anchors) {
     if (!a.hasAttribute("href")) continue;
     const href = a.getAttribute("href") ?? "";
     const norm = normalizeHref(href);
+    expect(norm).not.toMatch(scheme);
+  }
+  // Always scan raw HTML for href values that the DOM parser
+  // may not surface as <a> elements (e.g. stripped tags).
+  // Matches quoted and unquoted href attribute values.
+  const hrefPattern =
+    /href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+  let match: RegExpExecArray | null;
+  while ((match = hrefPattern.exec(html)) !== null) {
+    const value = match[1] ?? match[2] ?? match[3] ?? "";
+    const norm = normalizeHref(value);
     expect(norm).not.toMatch(scheme);
   }
 }
