@@ -9,9 +9,10 @@
   }
 
   function formatDuration(mins: number): string {
-    if (mins < 60) return `${Math.round(mins)}m`;
-    const h = Math.floor(mins / 60);
-    const m = Math.round(mins % 60);
+    const total = Math.round(mins);
+    if (total < 60) return `${total}m`;
+    const h = Math.floor(total / 60);
+    const m = total % 60;
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
   }
 

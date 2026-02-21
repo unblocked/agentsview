@@ -66,4 +66,16 @@ describe("commitsDisagree", () => {
       commitsDisagree("xyz99", "abc1234def5678"),
     ).toBe(true);
   });
+
+  it("returns true when first hash is empty", () => {
+    expect(commitsDisagree("", "abc1234")).toBe(true);
+  });
+
+  it("returns true when second hash is empty", () => {
+    expect(commitsDisagree("abc1234", "")).toBe(true);
+  });
+
+  it("returns true when both hashes are empty", () => {
+    expect(commitsDisagree("", "")).toBe(true);
+  });
 });

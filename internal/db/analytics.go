@@ -1788,12 +1788,12 @@ func (db *DB) GetAnalyticsTopSessions(
 	switch metric {
 	case "duration":
 		orderExpr = `(julianday(ended_at) -
-			julianday(started_at)) * 1440 DESC`
+			julianday(started_at)) * 1440 DESC, id ASC`
 		where += " AND started_at IS NOT NULL" +
 			" AND ended_at IS NOT NULL"
 	default:
 		metric = "messages"
-		orderExpr = "message_count DESC"
+		orderExpr = "message_count DESC, id ASC"
 	}
 
 	query := `SELECT id, ` + dateCol + `, project,

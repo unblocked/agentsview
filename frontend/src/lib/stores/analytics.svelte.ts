@@ -214,13 +214,33 @@ class AnalyticsStore {
     }
   }
 
+  // Projects chart always shows all projects (no project
+  // filter) so the selected project can be highlighted in
+  // context rather than shown in isolation.
+  private projectsParams(): AnalyticsParams {
+    if (this.selectedDate) {
+      return {
+        from: this.selectedDate,
+        to: this.selectedDate,
+        timezone:
+          Intl.DateTimeFormat().resolvedOptions().timeZone,
+      };
+    }
+    return {
+      from: this.from,
+      to: this.to,
+      timezone:
+        Intl.DateTimeFormat().resolvedOptions().timeZone,
+    };
+  }
+
   async fetchProjects() {
     const v = ++this.versions.projects;
     this.loading.projects = true;
     this.errors.projects = null;
     try {
       const data = await getAnalyticsProjects(
-        this.filterParams(),
+        this.projectsParams(),
       );
       if (this.versions.projects === v) {
         this.projects = data;

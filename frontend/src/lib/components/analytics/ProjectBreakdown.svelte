@@ -124,6 +124,7 @@
           class="bar-row"
           class:clickable={!project.name.startsWith("Other (")}
           class:selected={analytics.project === project.name}
+          class:dimmed={analytics.project !== "" && analytics.project !== project.name}
           onclick={() => handleClick(project)}
           onmouseenter={(e) => handleHover(e, project)}
           onmouseleave={handleLeave}
@@ -208,6 +209,14 @@
     background: color-mix(
       in srgb, var(--accent-blue) 12%, transparent
     );
+  }
+
+  .bar-row.dimmed {
+    opacity: 0.35;
+  }
+
+  .bar-row.dimmed:hover {
+    opacity: 0.7;
   }
 
   .filter-badge {

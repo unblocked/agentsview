@@ -20,6 +20,7 @@ export function commitsDisagree(
   b: string,
 ): boolean {
   if (a === "unknown" || b === "unknown") return false;
+  if (!a || !b) return true;
   if (a === b) return false;
   if (a.length === b.length) return true;
   const minLen = Math.min(a.length, b.length);

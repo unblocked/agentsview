@@ -311,6 +311,55 @@ func TestListSessions(t *testing.T) {
 	}, 3)
 }
 
+func TestListSessionsPaginationNoDuplicates(t *testing.T) {
+	d := testDB(t)
+
+	// 5 sessions: 2 share the same ended_at to test
+	// tie-breaking at page boundaries.
+	times := []string{
+		"2024-01-01T01:00:00Z",
+		"2024-01-01T02:00:00Z",
+		"2024-01-01T02:00:00Z", // same as previous
+		"2024-01-01T03:00:00Z",
+		"2024-01-01T04:00:00Z",
+	}
+	for i, ea := range times {
+		insertSession(t, d,
+			fmt.Sprintf("page-%c", 'a'+i), "proj",
+			func(s *Session) { s.EndedAt = Ptr(ea) },
+		)
+	}
+
+	// Paginate through all sessions 2 at a time.
+	seen := make(map[string]bool)
+	cursor := ""
+	pages := 0
+	for {
+		page, err := d.ListSessions(
+			context.Background(),
+			SessionFilter{Limit: 2, Cursor: cursor},
+		)
+		if err != nil {
+			t.Fatalf("ListSessions page %d: %v", pages, err)
+		}
+		for _, s := range page.Sessions {
+			if seen[s.ID] {
+				t.Errorf("duplicate session %s on page %d",
+					s.ID, pages)
+			}
+			seen[s.ID] = true
+		}
+		pages++
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if len(seen) != 5 {
+		t.Errorf("saw %d sessions, want 5", len(seen))
+	}
+}
+
 func TestListSessionsProjectFilter(t *testing.T) {
 	d := testDB(t)
 
