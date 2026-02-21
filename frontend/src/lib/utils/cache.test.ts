@@ -51,4 +51,55 @@ describe("LRUCache", () => {
     c.set("b", 2);
     expect(c.size).toBe(2);
   });
+
+  it("set refreshes recency of existing key", () => {
+    const c = new LRUCache<string, number>(3);
+    c.set("a", 1);
+    c.set("b", 2);
+    c.set("c", 3);
+    c.set("a", 10); // refresh "a" — now "b" is LRU
+    c.set("d", 4); // evicts "b"
+    expect(c.get("b")).toBeUndefined();
+    expect(c.get("a")).toBe(10);
+    expect(c.get("c")).toBe(3);
+    expect(c.get("d")).toBe(4);
+  });
+
+  it("evicts in insertion order without any access", () => {
+    const c = new LRUCache<string, number>(2);
+    c.set("a", 1);
+    c.set("b", 2);
+    c.set("c", 3); // evicts "a"
+    c.set("d", 4); // evicts "b"
+    expect(c.get("a")).toBeUndefined();
+    expect(c.get("b")).toBeUndefined();
+    expect(c.get("c")).toBe(3);
+    expect(c.get("d")).toBe(4);
+    expect(c.size).toBe(2);
+  });
+
+  it("mixed get/set maintains correct eviction order", () => {
+    const c = new LRUCache<string, number>(3);
+    c.set("a", 1);
+    c.set("b", 2);
+    c.set("c", 3);
+    // Access order: a(set), b(set), c(set) → LRU is "a"
+    c.get("a"); // promote "a" → LRU is "b"
+    c.set("b", 20); // refresh "b" → LRU is "c"
+    c.set("d", 4); // evicts "c"
+    expect(c.get("c")).toBeUndefined();
+    expect(c.get("a")).toBe(1);
+    expect(c.get("b")).toBe(20);
+    expect(c.get("d")).toBe(4);
+  });
+
+  it("capacity of one evicts on every new key", () => {
+    const c = new LRUCache<string, number>(1);
+    c.set("a", 1);
+    expect(c.get("a")).toBe(1);
+    c.set("b", 2);
+    expect(c.get("a")).toBeUndefined();
+    expect(c.get("b")).toBe(2);
+    expect(c.size).toBe(1);
+  });
 });
