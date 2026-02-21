@@ -1,6 +1,9 @@
 import type { Locator } from "@playwright/test";
 import { expect } from "@playwright/test";
 import type { SessionsPage } from "../pages/sessions-page";
+import { waitForStableValue } from "../../src/lib/utils/poll.js";
+
+export { waitForStableValue };
 
 type ScrollPosition = "top" | "bottom" | "middle" | number;
 
@@ -29,46 +32,6 @@ export async function scrollListTo(
     }
     el.dispatchEvent(new Event("scroll"));
   }, position);
-}
-
-/**
- * Polls a value-producing function until the value stays
- * constant for `stableDurationMs`. Throws if the value does
- * not stabilize within `maxWaitMs`.
- *
- * Uses `Object.is` for equality by default, which means callers
- * returning new object/array instances each poll must supply a
- * custom `isEqual` comparator.
- */
-export async function waitForStableValue<T>(
-  fn: () => Promise<T> | T,
-  stableDurationMs: number,
-  pollIntervalMs?: number,
-  maxWaitMs?: number,
-  isEqual: (a: T, b: T) => boolean = Object.is,
-): Promise<T> {
-  const interval = pollIntervalMs ?? 100;
-  const deadline =
-    Date.now() + (maxWaitMs ?? stableDurationMs * 3);
-  let lastValue = await fn();
-  let stableStart = Date.now();
-
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, interval));
-    const current = await fn();
-
-    if (!isEqual(current, lastValue)) {
-      lastValue = current;
-      stableStart = Date.now();
-    } else if (Date.now() - stableStart >= stableDurationMs) {
-      return current;
-    }
-  }
-  throw new Error(
-    `Value did not stabilize within ` +
-      `${maxWaitMs ?? stableDurationMs * 3}ms.` +
-      ` Last value: ${lastValue}`,
-  );
 }
 
 /**
