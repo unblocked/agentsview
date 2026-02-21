@@ -9,26 +9,15 @@ export function formatRelativeTime(
 ): string {
   if (!isoString) return "—";
 
-  const now = Date.now();
-  const then = new Date(isoString).getTime();
-  const diffSec = Math.floor((now - then) / 1000);
+  const date = new Date(isoString);
+  const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
 
-  if (diffSec < 0) return "just now";
   if (diffSec < MINUTE) return "just now";
-  if (diffSec < HOUR) {
-    const m = Math.floor(diffSec / MINUTE);
-    return `${m}m ago`;
-  }
-  if (diffSec < DAY) {
-    const h = Math.floor(diffSec / HOUR);
-    return `${h}h ago`;
-  }
-  if (diffSec < WEEK) {
-    const d = Math.floor(diffSec / DAY);
-    return `${d}d ago`;
-  }
+  if (diffSec < HOUR) return `${Math.floor(diffSec / MINUTE)}m ago`;
+  if (diffSec < DAY) return `${Math.floor(diffSec / HOUR)}h ago`;
+  if (diffSec < WEEK) return `${Math.floor(diffSec / DAY)}d ago`;
 
-  return new Date(isoString).toLocaleDateString(undefined, {
+  return date.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
   });
@@ -55,7 +44,9 @@ export function truncate(s: string, maxLen: number): string {
 }
 
 /** Formats an agent name for display */
-export function formatAgentName(agent: string): string {
+export function formatAgentName(
+  agent: string | null | undefined,
+): string {
   if (!agent) return "Unknown";
   // Capitalize first letter
   return agent.charAt(0).toUpperCase() + agent.slice(1);
@@ -72,10 +63,8 @@ export function formatNumber(n: number): string {
  */
 export function sanitizeSnippet(html: string): string {
   return html
-    .replace(/<mark>/gi, "\x00MARK_OPEN\x00")
-    .replace(/<\/mark>/gi, "\x00MARK_CLOSE\x00")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/\x00MARK_OPEN\x00/g, "<mark>")
-    .replace(/\x00MARK_CLOSE\x00/g, "</mark>");
+    .replace(/&lt;mark&gt;/gi, "<mark>")
+    .replace(/&lt;\/mark&gt;/gi, "</mark>");
 }
