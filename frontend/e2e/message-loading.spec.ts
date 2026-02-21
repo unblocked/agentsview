@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { SessionsPage } from "./pages/sessions-page";
+import {
+  waitForStableValue,
+  waitForRowCountStable,
+} from "./helpers/virtual-list-helpers";
 
 test.describe("Message loading", () => {
   test("clicking session shows messages", async ({ page }) => {
@@ -24,11 +28,9 @@ test.describe("Message loading", () => {
     await expect
       .poll(() => messageRequests.length, { timeout: 5_000 })
       .toBeGreaterThan(0);
-    const settled = await stableValue(
-      () => messageRequests.length,
-      500,
-    );
-    expect(settled).toBe(true);
+
+    // Wait for requests to stop firing
+    await waitForStableValue(() => messageRequests.length, 500);
 
     // For large sessions we may fetch several pages while loading
     // into memory. With the reactive loop bug, this would be
@@ -67,7 +69,7 @@ test.describe("Message loading", () => {
 
       // Wait for progressive loading to finish by polling
       // the message row count until it stabilizes.
-      await waitForRowCountStable(page);
+      await waitForRowCountStable(sp);
 
       // Scroll down
       await sp.scroller.evaluate((el) => {
@@ -83,68 +85,4 @@ test.describe("Message loading", () => {
         .toBeGreaterThan(500);
     },
   );
-
 });
-
-/** Polls a value-producing function until it stays constant. */
-async function stableValue(
-  fn: () => number,
-  durationMs: number,
-  pollMs: number = 100,
-): Promise<boolean> {
-  const deadline = Date.now() + durationMs * 3;
-  let last = fn();
-  let stableStart = Date.now();
-
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, pollMs));
-    const current = fn();
-    if (current !== last) {
-      last = current;
-      stableStart = Date.now();
-    }
-    if (Date.now() - stableStart >= durationMs) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/** Waits for the virtual row count to stabilize (progressive loading done). */
-async function waitForRowCountStable(
-  page: import("@playwright/test").Page,
-  durationMs: number = 800,
-) {
-  await expect
-    .poll(
-      async () => {
-        const count = await page
-          .locator(".virtual-row")
-          .count();
-        return count;
-      },
-      { timeout: 5_000 },
-    )
-    .toBeGreaterThan(0);
-
-  // Wait for count to stop changing
-  let lastCount = await page.locator(".virtual-row").count();
-  let stableStart = Date.now();
-  const deadline = Date.now() + durationMs * 3;
-
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 200));
-    const current = await page.locator(".virtual-row").count();
-    if (current !== lastCount) {
-      lastCount = current;
-      stableStart = Date.now();
-    }
-    if (Date.now() - stableStart >= durationMs) {
-      return;
-    }
-  }
-  throw new Error(
-    `Row count did not stabilize within ${durationMs * 3}ms` +
-      ` (last count: ${lastCount})`,
-  );
-}
