@@ -1,12 +1,18 @@
 type Route = "sessions";
 
-function parseHash(): {
+const VALID_ROUTES: ReadonlySet<string> = new Set<Route>([
+  "sessions",
+]);
+
+const DEFAULT_ROUTE: Route = "sessions";
+
+export function parseHash(): {
   route: Route;
   params: Record<string, string>;
 } {
   const hash = window.location.hash.slice(1);
   if (!hash || hash === "/") {
-    return { route: "sessions", params: {} };
+    return { route: DEFAULT_ROUTE, params: {} };
   }
 
   const qIdx = hash.indexOf("?");
@@ -14,7 +20,9 @@ function parseHash(): {
   const routeString = path.startsWith("/")
     ? path.slice(1)
     : path;
-  const route = (routeString || "sessions") as Route;
+  const route: Route = VALID_ROUTES.has(routeString)
+    ? (routeString as Route)
+    : DEFAULT_ROUTE;
 
   const params =
     qIdx >= 0
@@ -26,20 +34,29 @@ function parseHash(): {
   return { route, params };
 }
 
-class RouterStore {
+export class RouterStore {
   route: Route = $state("sessions");
   params: Record<string, string> = $state({});
+  #onHashChange: () => void;
 
   constructor() {
     const initial = parseHash();
     this.route = initial.route;
     this.params = initial.params;
 
-    window.addEventListener("hashchange", () => {
+    this.#onHashChange = () => {
       const parsed = parseHash();
       this.route = parsed.route;
       this.params = parsed.params;
-    });
+    };
+    window.addEventListener("hashchange", this.#onHashChange);
+  }
+
+  destroy() {
+    window.removeEventListener(
+      "hashchange",
+      this.#onHashChange,
+    );
   }
 
   navigate(route: Route, params: Record<string, string> = {}) {
