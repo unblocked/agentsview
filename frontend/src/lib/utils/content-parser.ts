@@ -39,7 +39,24 @@ const MAX_SEGMENT_CACHE = 8000;
 const toolOnlyCache = new Map<string, boolean>();
 const segmentCache = new Map<string, ContentSegment[]>();
 
-function cachePut<K, V>(cache: Map<K, V>, key: K, value: V, max: number) {
+function cacheGet<K, V>(
+  cache: Map<K, V>,
+  key: K,
+): V | undefined {
+  const value = cache.get(key);
+  if (value === undefined) return undefined;
+  // Move to end of insertion order for LRU eviction
+  cache.delete(key);
+  cache.set(key, value);
+  return value;
+}
+
+function cachePut<K, V>(
+  cache: Map<K, V>,
+  key: K,
+  value: V,
+  max: number,
+) {
   if (cache.has(key)) return;
   if (cache.size >= max) {
     const first = cache.keys().next();
@@ -52,8 +69,9 @@ function cachePut<K, V>(cache: Map<K, V>, key: K, value: V, max: number) {
 
 /** Returns true if the message contains only tool calls (no text) */
 export function isToolOnly(msg: Message): boolean {
-  const key = `${msg.role}|${msg.has_tool_use ? 1 : 0}|${msg.content}`;
-  const cached = toolOnlyCache.get(key);
+  const key =
+    `${msg.role}|${msg.has_tool_use ? 1 : 0}|${msg.content}`;
+  const cached = cacheGet(toolOnlyCache, key);
   if (cached !== undefined) {
     return cached;
   }
@@ -67,23 +85,14 @@ export function isToolOnly(msg: Message): boolean {
     .replace(THINKING_RE, "")
     .replace(TOOL_RE, "")
     .trim();
-  // Reset lastIndex since regexes have the global flag
-  THINKING_RE.lastIndex = 0;
-  TOOL_RE.lastIndex = 0;
   const result = stripped.length === 0;
   cachePut(toolOnlyCache, key, result, MAX_TOOL_ONLY_CACHE);
   return result;
 }
 
-/** Parse message content into typed segments */
-export function parseContent(text: string): ContentSegment[] {
-  if (!text) return [];
-  const cached = segmentCache.get(text);
-  if (cached) return cached;
-
+function extractMatches(text: string): Match[] {
   const matches: Match[] = [];
 
-  // Collect thinking blocks
   for (const m of text.matchAll(THINKING_RE)) {
     matches.push({
       start: m.index!,
@@ -95,7 +104,6 @@ export function parseContent(text: string): ContentSegment[] {
     });
   }
 
-  // Collect tool blocks
   for (const m of text.matchAll(TOOL_RE)) {
     const toolName = m[1] ?? "";
     const toolArgs = (m[2] ?? "").trim();
@@ -113,9 +121,7 @@ export function parseContent(text: string): ContentSegment[] {
     });
   }
 
-  // Collect code blocks
   for (const m of text.matchAll(CODE_BLOCK_RE)) {
-    // Skip code blocks already inside tool/thinking blocks
     const idx = m.index!;
     const insideOther = matches.some(
       (o) => idx >= o.start && idx < o.end,
@@ -133,15 +139,10 @@ export function parseContent(text: string): ContentSegment[] {
     });
   }
 
-  if (matches.length === 0) {
-    const onlyText: ContentSegment[] = [
-      { type: "text", content: text.trimEnd() },
-    ];
-    cachePut(segmentCache, text, onlyText, MAX_SEGMENT_CACHE);
-    return onlyText;
-  }
+  return matches;
+}
 
-  // Sort by position, remove overlaps
+function resolveOverlaps(matches: Match[]): Match[] {
   matches.sort((a, b) => a.start - b.start);
   const deduped: Match[] = [];
   let lastEnd = 0;
@@ -150,12 +151,17 @@ export function parseContent(text: string): ContentSegment[] {
     deduped.push(m);
     lastEnd = m.end;
   }
+  return deduped;
+}
 
-  // Build final segments with text gaps
+function buildSegments(
+  text: string,
+  matches: Match[],
+): ContentSegment[] {
   const segments: ContentSegment[] = [];
   let pos = 0;
 
-  for (const m of deduped) {
+  for (const m of matches) {
     if (m.start > pos) {
       const gap = text.slice(pos, m.start).trimEnd();
       if (gap) {
@@ -172,6 +178,28 @@ export function parseContent(text: string): ContentSegment[] {
       segments.push({ type: "text", content: tail });
     }
   }
+
+  return segments;
+}
+
+/** Parse message content into typed segments */
+export function parseContent(text: string): ContentSegment[] {
+  if (!text) return [];
+  const cached = cacheGet(segmentCache, text);
+  if (cached) return cached;
+
+  const matches = extractMatches(text);
+
+  if (matches.length === 0) {
+    const onlyText: ContentSegment[] = [
+      { type: "text", content: text.trimEnd() },
+    ];
+    cachePut(segmentCache, text, onlyText, MAX_SEGMENT_CACHE);
+    return onlyText;
+  }
+
+  const deduped = resolveOverlaps(matches);
+  const segments = buildSegments(text, deduped);
 
   cachePut(segmentCache, text, segments, MAX_SEGMENT_CACHE);
   return segments;

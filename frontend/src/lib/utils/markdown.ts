@@ -9,6 +9,15 @@ const parser = new Marked({
 const MAX_MARKDOWN_CACHE = 6000;
 const markdownCache = new Map<string, string>();
 
+function cacheGet(key: string): string | undefined {
+  const value = markdownCache.get(key);
+  if (value === undefined) return undefined;
+  // Move to end of insertion order for LRU eviction
+  markdownCache.delete(key);
+  markdownCache.set(key, value);
+  return value;
+}
+
 function cachePut(key: string, value: string) {
   if (markdownCache.has(key)) return;
   if (markdownCache.size >= MAX_MARKDOWN_CACHE) {
@@ -22,7 +31,7 @@ function cachePut(key: string, value: string) {
 
 export function renderMarkdown(text: string): string {
   if (!text) return "";
-  const cached = markdownCache.get(text);
+  const cached = cacheGet(text);
   if (cached !== undefined) {
     return cached;
   }
