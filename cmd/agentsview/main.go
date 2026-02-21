@@ -154,12 +154,6 @@ func mustLoadConfig(args []string) config.Config {
 		log.Fatalf("parsing flags: %v", err)
 	}
 
-	dataDir, err := config.ResolveDataDir()
-	if err != nil {
-		log.Fatalf("resolving data dir: %v", err)
-	}
-	config.MigrateFromLegacy(dataDir)
-
 	cfg, err := config.Load(fs)
 	if err != nil {
 		log.Fatalf("loading config: %v", err)

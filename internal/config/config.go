@@ -62,8 +62,7 @@ func Load(fs *flag.FlagSet) (Config, error) {
 
 // LoadMinimal builds a Config from defaults, env, and config file,
 // without parsing CLI flags. Use this for subcommands that manage
-// their own flag sets. Call MigrateFromLegacy before this if
-// legacy data migration is needed.
+// their own flag sets.
 func LoadMinimal() (Config, error) {
 	cfg, err := Default()
 	if err != nil {

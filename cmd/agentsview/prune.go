@@ -236,12 +236,6 @@ func runPrune(args []string) {
 		os.Exit(1)
 	}
 
-	dataDir, err := config.ResolveDataDir()
-	if err != nil {
-		log.Fatalf("resolving data dir: %v", err)
-	}
-	config.MigrateFromLegacy(dataDir)
-
 	appCfg, err := config.LoadMinimal()
 	if err != nil {
 		log.Fatalf("loading config: %v", err)
