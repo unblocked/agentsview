@@ -1,10 +1,10 @@
 <script lang="ts">
   import { analytics } from "../../stores/analytics.svelte.js";
 
-  const CELL_SIZE = 11;
+  const CELL_SIZE = 13;
   const CELL_GAP = 2;
   const CELL_STEP = CELL_SIZE + CELL_GAP;
-  const LABEL_WIDTH = 28;
+  const LABEL_WIDTH = 32;
   const HEADER_HEIGHT = 16;
   const DAY_LABELS = ["", "Mon", "", "Wed", "", "Fri", ""];
 
@@ -277,6 +277,8 @@
   .heatmap-scroll {
     overflow-x: auto;
     padding-bottom: 4px;
+    display: flex;
+    justify-content: center;
   }
 
   .heatmap-svg {
