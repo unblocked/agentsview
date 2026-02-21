@@ -135,6 +135,72 @@ describe("SessionsStore", () => {
         project: undefined,
       });
     });
+
+    it("should pass agent filter when set", async () => {
+      sessions.filters.agent = "claude";
+      await sessions.load();
+
+      expectListSessionsCalledWith({ agent: "claude" });
+    });
+
+    it("should omit agent when empty", async () => {
+      sessions.filters.agent = "";
+      await sessions.load();
+
+      expectListSessionsCalledWith({ agent: undefined });
+    });
+
+    it("should pass date filter when set", async () => {
+      sessions.filters.date = "2024-06-15";
+      await sessions.load();
+
+      expectListSessionsCalledWith({
+        date: "2024-06-15",
+      });
+    });
+
+    it("should omit date when empty", async () => {
+      sessions.filters.date = "";
+      await sessions.load();
+
+      expectListSessionsCalledWith({ date: undefined });
+    });
+
+    it("should pass date_from filter when set", async () => {
+      sessions.filters.dateFrom = "2024-06-01";
+      await sessions.load();
+
+      expectListSessionsCalledWith({
+        date_from: "2024-06-01",
+      });
+    });
+
+    it("should omit date_from when empty", async () => {
+      sessions.filters.dateFrom = "";
+      await sessions.load();
+
+      expectListSessionsCalledWith({
+        date_from: undefined,
+      });
+    });
+
+    it("should pass date_to filter when set", async () => {
+      sessions.filters.dateTo = "2024-06-30";
+      await sessions.load();
+
+      expectListSessionsCalledWith({
+        date_to: "2024-06-30",
+      });
+    });
+
+    it("should omit date_to when empty", async () => {
+      sessions.filters.dateTo = "";
+      await sessions.load();
+
+      expectListSessionsCalledWith({
+        date_to: undefined,
+      });
+    });
   });
 
   describe("loadMore serialization", () => {
@@ -203,6 +269,61 @@ describe("SessionsStore", () => {
       await sessions.loadMore();
 
       expectListSessionsCalledWith({
+        min_messages: undefined,
+        max_messages: undefined,
+      });
+    });
+
+    it("should pass all filters in loadMore", async () => {
+      sessions.nextCursor = "cur3";
+      sessions.filters.agent = "codex";
+      sessions.filters.date = "2024-07-01";
+      sessions.filters.dateFrom = "2024-07-01";
+      sessions.filters.dateTo = "2024-07-31";
+
+      mockListSessions();
+      await sessions.loadMore();
+
+      expectListSessionsCalledWith({
+        agent: "codex",
+        date: "2024-07-01",
+        date_from: "2024-07-01",
+        date_to: "2024-07-31",
+      });
+    });
+  });
+
+  describe("setProjectFilter", () => {
+    it("should reset non-project filters and pagination", async () => {
+      sessions.filters.agent = "codex";
+      sessions.filters.date = "2024-06-15";
+      sessions.filters.dateFrom = "2024-06-01";
+      sessions.filters.dateTo = "2024-06-30";
+      sessions.filters.minMessages = 5;
+      sessions.filters.maxMessages = 100;
+      sessions.activeSessionId = "old-session";
+
+      sessions.setProjectFilter("myproj");
+      // Wait for the load() triggered by setProjectFilter
+      await vi.waitFor(() => {
+        expect(sessions.loading).toBe(false);
+      });
+
+      expect(sessions.filters.project).toBe("myproj");
+      expect(sessions.filters.agent).toBe("");
+      expect(sessions.filters.date).toBe("");
+      expect(sessions.filters.dateFrom).toBe("");
+      expect(sessions.filters.dateTo).toBe("");
+      expect(sessions.filters.minMessages).toBe(0);
+      expect(sessions.filters.maxMessages).toBe(0);
+      expect(sessions.activeSessionId).toBeNull();
+
+      expectListSessionsCalledWith({
+        project: "myproj",
+        agent: undefined,
+        date: undefined,
+        date_from: undefined,
+        date_to: undefined,
         min_messages: undefined,
         max_messages: undefined,
       });
