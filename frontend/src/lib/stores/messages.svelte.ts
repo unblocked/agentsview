@@ -280,6 +280,9 @@ class MessagesStore {
       const chunk = [...res.messages].reverse();
       this.messages.unshift(...chunk);
       this.hasOlder = chunk[0]!.ordinal > 0;
+    } catch (err) {
+      if (isAbortError(err)) return;
+      console.warn("Failed to load older messages:", err);
     } finally {
       if (this.sessionId === id) {
         this.loadingOlder = false;
@@ -297,11 +300,24 @@ class MessagesStore {
 
     if (this.loadOlderPromise) {
       await this.loadOlderPromise;
+      if (!this.sessionId || this.sessionId !== id) return;
+      if (this.messages.length === 0) return;
+      if (this.messages[0]!.ordinal <= targetOrdinal) return;
     }
-    if (!this.sessionId || this.sessionId !== id) return;
-    if (this.messages.length === 0) return;
-    if (this.messages[0]!.ordinal <= targetOrdinal) return;
 
+    this.loadOlderPromise = this.doEnsureOrdinal(
+      id,
+      targetOrdinal,
+    ).finally(() => {
+      this.loadOlderPromise = null;
+    });
+    return this.loadOlderPromise;
+  }
+
+  private async doEnsureOrdinal(
+    id: string,
+    targetOrdinal: number,
+  ) {
     const signal = this.abortController?.signal;
     if (!signal || signal.aborted) return;
 

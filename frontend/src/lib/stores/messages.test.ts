@@ -370,4 +370,151 @@ describe('MessagesStore', () => {
 
     expect(messages.messageCount).toBe(4);
   });
+
+  describe('loadOlder abort handling', () => {
+    async function setupProgressiveSession() {
+      // Progressive loading triggers when count > 20_000.
+      // The first desc page returns ordinals 900..999 (reversed
+      // to 900..999 ascending). hasOlder is true because
+      // oldest ordinal (900) > 0.
+      const count = 25_000;
+      vi.mocked(api.getSession).mockResolvedValue(
+        makeSession('s1', count),
+      );
+      vi.mocked(api.getMinimap).mockResolvedValue(
+        emptyMinimap(),
+      );
+      const descPage = Array.from(
+        { length: 100 },
+        (_, i) => makeMessage(999 - i),
+      );
+      vi.mocked(api.getMessages).mockResolvedValueOnce(
+        makeMessagesResponse(descPage),
+      );
+
+      await messages.loadSession('s1');
+      expect(messages.hasOlder).toBe(true);
+      expect(messages.messages[0]!.ordinal).toBe(900);
+    }
+
+    it('should not surface abort error as unhandled rejection from loadOlder', async () => {
+      await setupProgressiveSession();
+
+      // Make getMessages hang until aborted
+      const { promise: hang, reject: rejectHang } =
+        createDeferred<MessagesResponse>();
+      vi.mocked(api.getMessages).mockReturnValue(
+        hang as ReturnType<typeof api.getMessages>,
+      );
+
+      const olderPromise = messages.loadOlder();
+      expect(messages.loadingOlder).toBe(true);
+
+      // Simulate session switch which aborts in-flight requests
+      rejectHang(
+        new DOMException('The operation was aborted.', 'AbortError'),
+      );
+      messages.clear();
+
+      // Should resolve without throwing
+      await expect(olderPromise).resolves.toBeUndefined();
+    });
+
+    it('should serialize concurrent loadOlder and ensureOrdinalLoaded', async () => {
+      await setupProgressiveSession();
+
+      // First loadOlder call — hangs
+      const {
+        promise: firstHang,
+        resolve: resolveFirst,
+      } = createDeferred<MessagesResponse>();
+      vi.mocked(api.getMessages).mockReturnValueOnce(
+        firstHang as ReturnType<typeof api.getMessages>,
+      );
+
+      const p1 = messages.loadOlder();
+
+      // ensureOrdinalLoaded should wait for the in-flight
+      // loadOlder before starting its own fetch
+      const olderChunk = Array.from(
+        { length: 100 },
+        (_, i) => makeMessage(899 - i),
+      );
+      vi.mocked(api.getMessages).mockResolvedValueOnce(
+        makeMessagesResponse(olderChunk),
+      );
+
+      const p2 = messages.ensureOrdinalLoaded(0);
+
+      // p1 still pending — getMessages should only have been
+      // called once so far (the loadOlder call)
+      expect(
+        vi.mocked(api.getMessages),
+      ).toHaveBeenCalledTimes(2); // 1 from loadSession + 1 from loadOlder
+
+      // Resolve the first loadOlder
+      const loadOlderChunk = Array.from(
+        { length: 100 },
+        (_, i) => makeMessage(899 - i),
+      );
+      resolveFirst(makeMessagesResponse(loadOlderChunk));
+
+      await p1;
+      await p2;
+
+      // Both completed without errors; loadingOlder is reset
+      expect(messages.loadingOlder).toBe(false);
+    });
+
+    it('should not allow overlapping loadOlder calls', async () => {
+      await setupProgressiveSession();
+      const callsBefore =
+        vi.mocked(api.getMessages).mock.calls.length;
+
+      const { promise: hang, resolve: resolveHang } =
+        createDeferred<MessagesResponse>();
+      vi.mocked(api.getMessages).mockReturnValueOnce(
+        hang as ReturnType<typeof api.getMessages>,
+      );
+
+      const p1 = messages.loadOlder();
+      // Second call while first is in-flight should not start
+      // another fetch
+      const p2 = messages.loadOlder();
+
+      // Only one additional getMessages call was made
+      expect(
+        vi.mocked(api.getMessages).mock.calls.length -
+          callsBefore,
+      ).toBe(1);
+
+      const olderChunk = Array.from(
+        { length: 100 },
+        (_, i) => makeMessage(899 - i),
+      );
+      resolveHang(makeMessagesResponse(olderChunk));
+      await Promise.all([p1, p2]);
+
+      expect(messages.loadingOlder).toBe(false);
+    });
+
+    it('should not surface abort error from ensureOrdinalLoaded on session switch', async () => {
+      await setupProgressiveSession();
+
+      const { promise: hang, reject: rejectHang } =
+        createDeferred<MessagesResponse>();
+      vi.mocked(api.getMessages).mockReturnValue(
+        hang as ReturnType<typeof api.getMessages>,
+      );
+
+      const p = messages.ensureOrdinalLoaded(0);
+
+      rejectHang(
+        new DOMException('The operation was aborted.', 'AbortError'),
+      );
+      messages.clear();
+
+      await expect(p).resolves.toBeUndefined();
+    });
+  });
 });
