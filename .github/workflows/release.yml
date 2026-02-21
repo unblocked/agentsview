@@ -21,10 +21,10 @@ jobs:
             goos: linux
             goarch: arm64
             cc: aarch64-linux-gnu-gcc
-          - os: macos-13
+          - os: macos-15
             goos: darwin
             goarch: amd64
-          - os: macos-latest
+          - os: macos-15
             goos: darwin
             goarch: arm64
           - os: windows-latest
