@@ -1087,6 +1087,38 @@ func TestParseCodexSession(t *testing.T) {
 			},
 		},
 		{
+			name: "empty array arguments falls through to input",
+			content: testjsonl.JoinJSONL(
+				testjsonl.CodexSessionMetaJSON(
+					"fc-empty-arr", "/tmp", "user", tsEarly,
+				),
+				testjsonl.CodexMsgJSON(
+					"user", "run command", tsEarlyS1,
+				),
+				testjsonl.CodexFunctionCallFieldsJSON(
+					"exec_command",
+					[]any{},
+					`{"cmd":"echo hello"}`,
+					tsEarlyS5,
+				),
+			),
+			wantID:   "codex:fc-empty-arr",
+			wantMsgs: 2,
+			check: func(
+				t *testing.T, _ *ParsedSession,
+				msgs []ParsedMessage,
+			) {
+				t.Helper()
+				want := "[Bash]\n$ echo hello"
+				if msgs[1].Content != want {
+					t.Errorf(
+						"content = %q, want %q",
+						msgs[1].Content, want,
+					)
+				}
+			},
+		},
+		{
 			name: "write_stdin formats with session and chars",
 			content: testjsonl.JoinJSONL(
 				testjsonl.CodexSessionMetaJSON(
