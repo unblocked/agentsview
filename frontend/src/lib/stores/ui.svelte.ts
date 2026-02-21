@@ -5,12 +5,18 @@ type ModalType =
   | "publish"
   | null;
 
+function readStoredTheme(): Theme | null {
+  if (
+    typeof localStorage !== "undefined" &&
+    typeof localStorage.getItem === "function"
+  ) {
+    return localStorage.getItem("theme") as Theme;
+  }
+  return null;
+}
+
 class UIStore {
-  theme: Theme = $state(
-    (typeof localStorage !== "undefined"
-      ? (localStorage.getItem("theme") as Theme)
-      : null) || "light",
-  );
+  theme: Theme = $state(readStoredTheme() || "light");
   showThinking: boolean = $state(true);
   sortNewestFirst: boolean = $state(true);
   activeModal: ModalType = $state(null);
@@ -26,7 +32,9 @@ class UIStore {
         } else {
           root.classList.remove("dark");
         }
-        localStorage.setItem("theme", this.theme);
+        if (typeof localStorage.setItem === "function") {
+          localStorage.setItem("theme", this.theme);
+        }
       });
     });
   }
