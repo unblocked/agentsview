@@ -39,6 +39,152 @@ vi.mock('@tanstack/virtual-core', async () => {
   };
 });
 
+describe('initialOffset semantics', () => {
+  beforeEach(() => {
+    lastOptions.value = undefined;
+    lastInstance.value = undefined;
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('element virtualizer uses scrollTop on first mount', async () => {
+    const onInstanceChange = vi.fn();
+    const container = document.createElement('div');
+    const scrollDiv = document.createElement('div');
+    Object.defineProperty(scrollDiv, 'scrollTop', {
+      value: 200,
+      writable: false,
+    });
+
+    const component = mount(VirtualizerTest, {
+      target: container,
+      props: {
+        type: 'element',
+        options: {
+          count: 10,
+          getScrollElement: () => scrollDiv,
+          estimateSize: () => 50,
+          initialOffset: 999,
+        },
+        onInstanceChange,
+      },
+    });
+
+    await tick();
+    expect(lastOptions.value).toBeDefined();
+    expect(lastOptions.value!.initialOffset).toBe(200);
+
+    unmount(component);
+  });
+
+  it('element virtualizer falls back to 0 with null scroll element', async () => {
+    const onInstanceChange = vi.fn();
+    const container = document.createElement('div');
+
+    const component = mount(VirtualizerTest, {
+      target: container,
+      props: {
+        type: 'element',
+        options: {
+          count: 10,
+          getScrollElement: () => null,
+          estimateSize: () => 50,
+          initialOffset: 999,
+        },
+        onInstanceChange,
+      },
+    });
+
+    await tick();
+    expect(lastOptions.value).toBeDefined();
+    expect(lastOptions.value!.initialOffset).toBe(0);
+
+    unmount(component);
+  });
+
+  it('window virtualizer uses 0 on first mount', async () => {
+    const onInstanceChange = vi.fn();
+    const container = document.createElement('div');
+
+    const component = mount(VirtualizerTest, {
+      target: container,
+      props: {
+        type: 'window',
+        options: {
+          count: 20,
+          estimateSize: () => 50,
+          initialOffset: 999,
+        },
+        onInstanceChange,
+      },
+    });
+
+    await tick();
+    expect(lastOptions.value).toBeDefined();
+    expect(lastOptions.value!.initialOffset).toBe(0);
+
+    unmount(component);
+  });
+
+  it('element virtualizer ignores user initialOffset with scrollTop=0', async () => {
+    const onInstanceChange = vi.fn();
+    const container = document.createElement('div');
+    const scrollDiv = document.createElement('div');
+    Object.defineProperty(scrollDiv, 'scrollTop', {
+      value: 0,
+      writable: false,
+    });
+
+    const component = mount(VirtualizerTest, {
+      target: container,
+      props: {
+        type: 'element',
+        options: {
+          count: 10,
+          getScrollElement: () => scrollDiv,
+          estimateSize: () => 50,
+          initialOffset: 500,
+        },
+        onInstanceChange,
+      },
+    });
+
+    await tick();
+    expect(lastOptions.value).toBeDefined();
+    expect(lastOptions.value!.initialOffset).toBe(0);
+
+    unmount(component);
+  });
+
+  it('window virtualizer ignores user initialOffset', async () => {
+    const onInstanceChange = vi.fn();
+    const container = document.createElement('div');
+
+    const component = mount(VirtualizerTest, {
+      target: container,
+      props: {
+        type: 'window',
+        options: {
+          count: 20,
+          estimateSize: () => 50,
+          initialOffset: 500,
+        },
+        onInstanceChange,
+      },
+    });
+
+    await tick();
+    expect(lastOptions.value).toBeDefined();
+    expect(lastOptions.value!.initialOffset).toBe(0);
+
+    unmount(component);
+  });
+});
+
 describe('createVirtualizer reactivity', () => {
   beforeEach(() => {
     lastOptions.value = undefined;

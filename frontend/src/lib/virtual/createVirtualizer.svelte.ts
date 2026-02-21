@@ -65,7 +65,7 @@ function createBaseVirtualizer<
     const resolvedOpts: VirtualizerOptions<TScroll, TItem> = {
       ...opts,
       initialOffset:
-        instance?.scrollOffset ?? opts.initialOffset ?? 0,
+        instance?.scrollOffset ?? opts.initialOffset,
       onChange: (
         vInst: Virtualizer<TScroll, TItem>,
         sync: boolean,
@@ -126,8 +126,7 @@ export function createVirtualizer(
         observeElementRect,
         scrollToFn: elementScroll,
         ...opts,
-        initialOffset:
-          scrollEl?.scrollTop ?? opts.initialOffset ?? 0,
+        initialOffset: scrollEl?.scrollTop ?? 0,
       };
     },
     (instance, opts) => {
@@ -148,5 +147,6 @@ export function createWindowVirtualizer(
     scrollToFn: windowScroll,
     getScrollElement: () => window,
     ...optsFn(),
+    initialOffset: 0,
   }));
 }
