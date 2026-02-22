@@ -297,54 +297,60 @@ const exportTemplateStr = `<!DOCTYPE html>
 <title>{{.Project}} - Agent Session</title>
 <style>
 :root {
-  --bg-primary: #faf8f5;
+  --bg-primary: #f7f7fa;
   --bg-surface: #ffffff;
-  --bg-inset: #f0ede8;
-  --border-default: #e5e0db;
-  --border-muted: #ece8e3;
-  --text-primary: #2c2825;
-  --text-secondary: #5c5650;
-  --text-muted: #8c8580;
+  --bg-inset: #edeef3;
+  --border-default: #dfe1e8;
+  --border-muted: #e8eaf0;
+  --text-primary: #1a1d26;
+  --text-secondary: #5a6070;
+  --text-muted: #8b92a0;
   --accent-blue: #2563eb;
-  --accent-purple: #b08d24;
+  --accent-purple: #7c3aed;
   --accent-amber: #d97706;
-  --user-bg: #f0f4ff;
-  --assistant-bg: #fdf8ee;
-  --thinking-bg: #fdf6e8;
-  --tool-bg: #fff8f0;
+  --user-bg: #eef2ff;
+  --assistant-bg: #faf9ff;
+  --thinking-bg: #f5f3ff;
+  --tool-bg: #fffbf0;
+  --code-bg: #1e1e2e;
+  --code-text: #cdd6f4;
   --radius-sm: 4px;
+  --radius-md: 6px;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, "Helvetica Neue", sans-serif;
-  --font-mono: "SF Mono", "Fira Code", "Fira Mono", Menlo,
-    Consolas, monospace;
+    "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Fira Code",
+    "Fira Mono", Menlo, Consolas, monospace;
   color-scheme: light;
 }
 :root.dark {
-  --bg-primary: #0a0a0a;
-  --bg-surface: #141414;
-  --bg-inset: #0e0e0e;
-  --border-default: #262626;
-  --border-muted: #1e1e1e;
-  --text-primary: #e0e0e0;
-  --text-secondary: #a0a0a0;
-  --text-muted: #666666;
+  --bg-primary: #0c0c10;
+  --bg-surface: #15151b;
+  --bg-inset: #101015;
+  --border-default: #2a2a35;
+  --border-muted: #222230;
+  --text-primary: #e2e4e9;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
   --accent-blue: #60a5fa;
-  --accent-purple: #c9a84c;
+  --accent-purple: #a78bfa;
   --accent-amber: #fbbf24;
-  --user-bg: #0f1724;
-  --assistant-bg: #1a1708;
-  --thinking-bg: #1e1a0c;
+  --user-bg: #111827;
+  --assistant-bg: #141220;
+  --thinking-bg: #1a1530;
   --tool-bg: #1a1508;
+  --code-bg: #0d0d14;
+  --code-text: #cdd6f4;
   color-scheme: dark;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 14px;
   background: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 header {
   background: var(--bg-surface);
@@ -368,9 +374,9 @@ main { max-width: 900px; margin: 0 auto; padding: 16px; }
   display: flex; flex-direction: column; gap: 8px;
 }
 .message {
-  border-left: 3px solid;
-  padding: 8px 16px;
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-left: 4px solid;
+  padding: 14px 20px;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
 }
 .message.user {
   background: var(--user-bg);
@@ -382,54 +388,54 @@ main { max-width: 900px; margin: 0 auto; padding: 16px; }
 }
 .message-header {
   display: flex; align-items: center; gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 10px;
 }
 .message-role {
-  font-size: 11px; font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.03em;
+  font-size: 13px; font-weight: 600;
+  letter-spacing: 0.01em;
 }
 .message.user .message-role { color: var(--accent-blue); }
 .message.assistant .message-role {
   color: var(--accent-purple);
 }
 .message-time {
-  font-size: 10px; color: var(--text-muted);
+  font-size: 12px; color: var(--text-muted);
 }
 .message-content {
-  font-family: var(--font-mono); font-size: 13px;
-  line-height: 1.6; color: var(--text-primary);
+  font-size: 14px; line-height: 1.7;
+  color: var(--text-primary);
   white-space: pre-wrap; word-break: break-word;
 }
 .message-content pre {
-  background: var(--bg-inset);
-  border: 1px solid var(--border-muted);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px; overflow-x: auto;
-  margin: 4px 0; font-size: 11px;
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: var(--radius-md);
+  padding: 12px 16px; overflow-x: auto;
+  margin: 0.5em 0;
 }
 .message-content code {
-  font-family: var(--font-mono); font-size: 0.9em;
+  font-family: var(--font-mono); font-size: 0.85em;
   background: var(--bg-inset);
   border: 1px solid var(--border-muted);
-  border-radius: 3px; padding: 0.15em 0.35em;
+  border-radius: 4px; padding: 0.15em 0.4em;
 }
 .message-content pre code {
   background: none; border: none;
-  padding: 0; font-size: inherit;
+  padding: 0; font-size: 13px; color: inherit;
 }
 .thinking-block {
-  border-left: 3px solid var(--accent-purple);
+  border-left: 2px solid var(--accent-purple);
   background: var(--thinking-bg);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  padding: 4px 12px 8px; margin: 4px 0;
+  padding: 8px 14px 12px; margin: 4px 0;
   font-style: italic; color: var(--text-secondary);
-  font-size: 12px; line-height: 1.6; display: none;
+  font-size: 13px; line-height: 1.65; display: none;
 }
 .thinking-label {
-  font-size: 10px; font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: 0.05em;
-  margin-bottom: 2px; font-style: normal;
+  font-size: 12px; font-weight: 600;
+  color: var(--accent-purple);
+  letter-spacing: 0.01em;
+  margin-bottom: 4px; font-style: normal;
 }
 .message.thinking-only { display: none; }
 #thinking-toggle:checked ~ main .thinking-block {
@@ -439,11 +445,12 @@ main { max-width: 900px; margin: 0 auto; padding: 16px; }
   display: block;
 }
 .tool-block {
-  border-left: 3px solid var(--accent-amber);
+  border-left: 2px solid var(--accent-amber);
   background: var(--tool-bg);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  padding: 4px 8px; margin: 4px 0;
-  font-size: 11px; color: var(--text-secondary);
+  padding: 6px 10px; margin: 4px 0;
+  font-family: var(--font-mono);
+  font-size: 12px; color: var(--text-secondary);
 }
 #sort-toggle:checked ~ main .messages {
   flex-direction: column-reverse;
