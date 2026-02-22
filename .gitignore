@@ -10,8 +10,9 @@ frontend/dist/
 frontend/test-results/
 frontend/playwright-report/
 
-# Embedded frontend build output
-internal/web/dist/
+# Embedded frontend build output (keep placeholder for go:embed)
+internal/web/dist/*
+!internal/web/dist/placeholder.html
 
 # Test/build artifacts
 /dist/
