@@ -1486,3 +1486,33 @@ func TestGetVersion_Default(t *testing.T) {
 		t.Errorf("version = %q, want empty", resp.Version)
 	}
 }
+
+func TestFindAvailablePortSkipsOccupied(t *testing.T) {
+	// Bind a port on 127.0.0.1 so FindAvailablePort must skip it.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	occupied := ln.Addr().(*net.TCPAddr).Port
+
+	got := server.FindAvailablePort("127.0.0.1", occupied)
+	if got == occupied {
+		t.Errorf(
+			"FindAvailablePort returned occupied port %d", occupied,
+		)
+	}
+
+	// The returned port should be bindable on the same host.
+	ln2, err := net.Listen(
+		"tcp",
+		fmt.Sprintf("127.0.0.1:%d", got),
+	)
+	if err != nil {
+		t.Fatalf(
+			"returned port %d not bindable: %v", got, err,
+		)
+	}
+	ln2.Close()
+}

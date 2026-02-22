@@ -29,6 +29,9 @@ jobs:
           install: mingw-w64-x86_64-gcc
           path-type: inherit
 
+      - name: Stub frontend embed dir
+        run: mkdir -p internal/web/dist && echo ok > internal/web/dist/stub.html
+
       - name: Run Go tests
         run: go test -tags fts5 ./... -v -count=1
         env:

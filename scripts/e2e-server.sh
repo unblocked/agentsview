@@ -14,7 +14,7 @@ mkdir -p "$EMPTY_DIR"
 FIXTURE="${E2E_PREBUILT_FIXTURE:-}"
 SERVER="${E2E_PREBUILT_SERVER:-}"
 
-if [ -n "$FIXTURE" ] && [ -x "$FIXTURE" ]; then
+if [ -n "$FIXTURE" ] && [ -f "$FIXTURE" ] && [ -x "$FIXTURE" ]; then
     echo "Using pre-built fixture: $FIXTURE"
 else
     echo "Building test fixture..."
@@ -24,7 +24,7 @@ else
 fi
 "$FIXTURE" -out "$DB_PATH"
 
-if [ -n "$SERVER" ] && [ -x "$SERVER" ]; then
+if [ -n "$SERVER" ] && [ -f "$SERVER" ] && [ -x "$SERVER" ]; then
     echo "Using pre-built server: $SERVER"
 else
     echo "Building server..."

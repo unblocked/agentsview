@@ -1384,6 +1384,7 @@ func TestMigrationRace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
+	t.Cleanup(func() { _ = rawDB.Close() })
 
 	// Create sessions table without file_hash
 	_, err = rawDB.Exec(`
@@ -1408,7 +1409,9 @@ func TestMigrationRace(t *testing.T) {
 
 	// Close the raw connection before concurrent opens to avoid
 	// holding a lock on Windows.
-	rawDB.Close()
+	if err := rawDB.Close(); err != nil {
+		t.Fatalf("close rawDB: %v", err)
+	}
 
 	// 2. Run concurrent Open
 	// Both should succeed. One will likely hit "duplicate column".
@@ -1453,10 +1456,13 @@ func TestMigrationRace(t *testing.T) {
 	var successes int
 	for range 2 {
 		if err := <-errCh; err != nil {
-			// Concurrent schema migrations can hit "database is
-			// locked" — acceptable as long as at least one succeeds
-			// and the final schema is correct.
-			t.Logf("concurrent Open error (expected): %v", err)
+			msg := err.Error()
+			if strings.Contains(msg, "database is locked") ||
+				strings.Contains(msg, "SQLITE_BUSY") {
+				t.Logf("concurrent Open lock contention: %v", err)
+			} else {
+				t.Errorf("unexpected concurrent Open error: %v", err)
+			}
 		} else {
 			successes++
 		}

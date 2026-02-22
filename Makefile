@@ -10,7 +10,13 @@ LDFLAGS := -X main.version=$(VERSION) \
 
 LDFLAGS_RELEASE := $(LDFLAGS) -s -w
 
-.PHONY: build build-release install frontend frontend-dev dev test test-short e2e vet lint tidy clean release release-darwin-arm64 release-darwin-amd64 release-linux-amd64 install-hooks help
+.PHONY: build build-release install frontend frontend-dev dev test test-short e2e vet lint tidy clean release release-darwin-arm64 release-darwin-amd64 release-linux-amd64 install-hooks ensure-embed-dir help
+
+# Ensure go:embed has at least one file (no-op if frontend is built)
+ensure-embed-dir:
+	@mkdir -p internal/web/dist
+	@test -n "$$(ls internal/web/dist/ 2>/dev/null)" \
+		|| echo ok > internal/web/dist/stub.html
 
 # Build the binary (debug, with embedded frontend)
 build: frontend
@@ -49,15 +55,15 @@ frontend-dev:
 	cd frontend && npm run dev
 
 # Run Go server in dev mode (no embedded frontend)
-dev:
+dev: ensure-embed-dir
 	go run -tags fts5 -ldflags="$(LDFLAGS)" ./cmd/agentsview $(ARGS)
 
 # Run tests
-test:
+test: ensure-embed-dir
 	go test -tags fts5 ./... -v -count=1
 
 # Run fast tests only
-test-short:
+test-short: ensure-embed-dir
 	go test -tags fts5 ./... -short -count=1
 
 # Run Playwright E2E tests
@@ -65,11 +71,11 @@ e2e:
 	cd frontend && npx playwright test
 
 # Vet
-vet:
+vet: ensure-embed-dir
 	go vet -tags fts5 ./...
 
 # Lint Go code with project defaults
-lint:
+lint: ensure-embed-dir
 	@if ! command -v golangci-lint >/dev/null 2>&1; then \
 		echo "golangci-lint not found. Install with: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.10.1" >&2; \
 		exit 1; \

@@ -141,16 +141,11 @@ func TestWatcherCallsOnChange(t *testing.T) {
 func TestWatcherAutoWatchesNewDirs(t *testing.T) {
 	var mu sync.Mutex
 	var allPaths []string
-	done := make(chan struct{}, 1)
 
 	w, dir := startTestWatcher(t, func(paths []string) {
 		mu.Lock()
 		allPaths = append(allPaths, paths...)
 		mu.Unlock()
-		select {
-		case done <- struct{}{}:
-		default:
-		}
 	})
 
 	subdir := filepath.Join(dir, "newdir")
