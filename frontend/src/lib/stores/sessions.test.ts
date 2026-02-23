@@ -5,7 +5,11 @@ import {
   vi,
   beforeEach,
 } from "vitest";
-import { createSessionsStore } from "./sessions.svelte.js";
+import {
+  createSessionsStore,
+  buildSessionGroups,
+} from "./sessions.svelte.js";
+import type { Session } from "../api/types.js";
 import * as api from "../api/client.js";
 import type { ListSessionsParams } from "../api/client.js";
 
@@ -417,5 +421,326 @@ describe("SessionsStore", () => {
       await expect(p1).rejects.toThrow("network");
       await expect(p2).rejects.toThrow("network");
     });
+  });
+});
+
+function makeSession(
+  overrides: Partial<Session> & { id: string },
+): Session {
+  return {
+    project: "proj",
+    machine: "local",
+    agent: "claude",
+    first_message: null,
+    started_at: null,
+    ended_at: null,
+    message_count: 1,
+    created_at: "2024-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+describe("buildSessionGroups", () => {
+  it("groups two-session chain", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-01T01:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        parent_session_id: "s1",
+        started_at: "2024-01-01T02:00:00Z",
+        ended_at: "2024-01-01T03:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.sessions).toHaveLength(2);
+  });
+
+  it("keeps sessions without parent ungrouped", () => {
+    const sessions = [
+      makeSession({ id: "s1", project: "proj" }),
+      makeSession({ id: "s2", project: "proj" }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.sessions).toHaveLength(1);
+    expect(groups[1]!.sessions).toHaveLength(1);
+  });
+
+  it("missing middle link creates separate groups", () => {
+    // Chain: s1 -> s2 -> s3, but s2 is not in the loaded set
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        started_at: "2024-01-01T00:00:00Z",
+      }),
+      makeSession({
+        id: "s3",
+        project: "proj",
+        parent_session_id: "s2",
+        started_at: "2024-01-03T00:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    // s3 can't walk to s1 because s2 is missing
+    expect(groups).toHaveLength(2);
+  });
+
+  it("three-session chain groups correctly", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-01T01:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        parent_session_id: "s1",
+        started_at: "2024-01-01T02:00:00Z",
+        ended_at: "2024-01-01T03:00:00Z",
+      }),
+      makeSession({
+        id: "s3",
+        project: "proj",
+        parent_session_id: "s2",
+        started_at: "2024-01-01T04:00:00Z",
+        ended_at: "2024-01-01T05:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.sessions).toHaveLength(3);
+    // Sorted by started_at asc
+    expect(groups[0]!.sessions[0]!.id).toBe("s1");
+    expect(groups[0]!.sessions[1]!.id).toBe("s2");
+    expect(groups[0]!.sessions[2]!.id).toBe("s3");
+  });
+
+  it("computes correct group metadata", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        message_count: 10,
+        first_message: "first session msg",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-01T01:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        parent_session_id: "s1",
+        message_count: 5,
+        first_message: "second session msg",
+        started_at: "2024-01-01T02:00:00Z",
+        ended_at: "2024-01-01T04:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups).toHaveLength(1);
+
+    const g = groups[0]!;
+    expect(g.totalMessages).toBe(15);
+    expect(g.startedAt).toBe("2024-01-01T00:00:00Z");
+    expect(g.endedAt).toBe("2024-01-01T04:00:00Z");
+    expect(g.firstMessage).toBe("first session msg");
+    expect(g.primarySessionId).toBe("s2");
+  });
+
+  it("selects primary by ended_at not started_at", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-01T05:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        parent_session_id: "s1",
+        started_at: "2024-01-02T00:00:00Z",
+        ended_at: "2024-01-02T01:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups[0]!.primarySessionId).toBe("s2");
+  });
+
+  it("selects primary by ended_at when started_at later", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        started_at: "2024-01-02T00:00:00Z",
+        ended_at: "2024-01-02T01:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        parent_session_id: "s1",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-03T00:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups[0]!.primarySessionId).toBe("s2");
+  });
+
+  it("null ended_at falls back to started_at for primary", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-01T05:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        parent_session_id: "s1",
+        started_at: "2024-01-02T00:00:00Z",
+        ended_at: null,
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    // s2 recencyKey = started_at "2024-01-02" > s1 ended_at "2024-01-01T05"
+    expect(groups[0]!.primarySessionId).toBe("s2");
+  });
+
+  it("completed session wins over in-progress when ended_at later", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-03T00:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        parent_session_id: "s1",
+        started_at: "2024-01-02T00:00:00Z",
+        ended_at: null,
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    // s1 recencyKey = ended_at "2024-01-03" > s2 started_at "2024-01-02"
+    expect(groups[0]!.primarySessionId).toBe("s1");
+  });
+
+  it("selects primary by created_at when both null", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        started_at: null,
+        ended_at: null,
+        created_at: "2024-01-01T00:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        parent_session_id: "s1",
+        started_at: null,
+        ended_at: null,
+        created_at: "2024-01-02T00:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups[0]!.primarySessionId).toBe("s2");
+  });
+
+  it("equal ended_at picks earliest started_at deterministically", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        started_at: "2024-01-02T00:00:00Z",
+        ended_at: "2024-01-03T00:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        parent_session_id: "s1",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-03T00:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    // Both have same ended_at, so recencyKey ties;
+    // after started_at asc sort, s2 is first -> kept as primary
+    expect(groups[0]!.primarySessionId).toBe("s2");
+  });
+
+  it("sorts sessions within group by startedAt asc", () => {
+    const sessions = [
+      makeSession({
+        id: "s2",
+        project: "proj",
+        parent_session_id: "s1",
+        started_at: "2024-01-02T00:00:00Z",
+      }),
+      makeSession({
+        id: "s1",
+        project: "proj",
+        started_at: "2024-01-01T00:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups[0]!.sessions[0]!.id).toBe("s1");
+    expect(groups[0]!.sessions[1]!.id).toBe("s2");
+  });
+
+  it("handles empty sessions array", () => {
+    const groups = buildSessionGroups([]);
+    expect(groups).toHaveLength(0);
+  });
+
+  it("mixes grouped and ungrouped sessions", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        project: "proj",
+        ended_at: "2024-01-03T00:00:00Z",
+      }),
+      makeSession({
+        id: "s2",
+        project: "proj",
+        ended_at: "2024-01-02T00:00:00Z",
+      }),
+      makeSession({
+        id: "s3",
+        project: "proj",
+        parent_session_id: "s1",
+        ended_at: "2024-01-01T00:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.sessions).toHaveLength(2);
+    expect(groups[1]!.sessions).toHaveLength(1);
   });
 });

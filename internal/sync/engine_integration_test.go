@@ -824,6 +824,58 @@ func TestSyncPathsStatsUpdated(t *testing.T) {
 	}
 }
 
+func TestSyncPathsClaudeParentSessionID(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUserWithSessionID(
+			tsZero, "Hello", "parent-uuid",
+		).
+		AddClaudeAssistant(tsZeroS5, "Hi there!").
+		String()
+
+	path := env.writeClaudeSession(
+		t, "test-proj", "child-test.jsonl", content,
+	)
+
+	env.engine.SyncPaths([]string{path})
+
+	assertSessionState(
+		t, env.db, "child-test",
+		func(sess *db.Session) {
+			if sess.ParentSessionID == nil ||
+				*sess.ParentSessionID != "parent-uuid" {
+				t.Errorf("parent_session_id = %v, want %q",
+					sess.ParentSessionID, "parent-uuid")
+			}
+		},
+	)
+}
+
+func TestSyncPathsClaudeNoParentSessionID(t *testing.T) {
+	env := setupTestEnv(t)
+
+	content := testjsonl.NewSessionBuilder().
+		AddClaudeUser(tsZero, "Hello").
+		String()
+
+	path := env.writeClaudeSession(
+		t, "test-proj", "no-parent-test.jsonl", content,
+	)
+
+	env.engine.SyncPaths([]string{path})
+
+	assertSessionState(
+		t, env.db, "no-parent-test",
+		func(sess *db.Session) {
+			if sess.ParentSessionID != nil {
+				t.Errorf("parent_session_id = %v, want nil",
+					sess.ParentSessionID)
+			}
+		},
+	)
+}
+
 func TestSyncPathsClaudeRejectsNested(t *testing.T) {
 	env := setupTestEnv(t)
 

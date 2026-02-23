@@ -5,11 +5,23 @@
 
   interface Props {
     session: Session;
+    continuationCount?: number;
+    groupSessionIds?: string[];
   }
 
-  let { session }: Props = $props();
+  let {
+    session,
+    continuationCount = 1,
+    groupSessionIds,
+  }: Props = $props();
 
-  let isActive = $derived(sessions.activeSessionId === session.id);
+  let isActive = $derived(
+    groupSessionIds
+      ? groupSessionIds.includes(
+          sessions.activeSessionId ?? "",
+        )
+      : sessions.activeSessionId === session.id,
+  );
 
   let agentColor = $derived(
     session.agent === "codex"
@@ -41,6 +53,9 @@
       <span class="session-project">{session.project}</span>
       <span class="session-time">{timeStr}</span>
       <span class="session-count">{session.message_count}</span>
+      {#if continuationCount > 1}
+        <span class="continuation-badge">x{continuationCount}</span>
+      {/if}
     </div>
   </div>
 </button>
@@ -116,5 +131,13 @@
 
   .session-count::before {
     content: "\2022 ";
+  }
+
+  .continuation-badge {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--accent-blue);
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 </style>

@@ -3,6 +3,17 @@ import type { Session, ProjectInfo } from "../api/types.js";
 
 const SESSION_PAGE_SIZE = 500;
 
+export interface SessionGroup {
+  key: string;
+  project: string;
+  sessions: Session[];
+  primarySessionId: string;
+  totalMessages: number;
+  firstMessage: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+}
+
 interface Filters {
   project: string;
   agent: string;
@@ -42,6 +53,10 @@ class SessionsStore {
     return this.sessions.find(
       (s) => s.id === this.activeSessionId,
     );
+  }
+
+  get groupedSessions(): SessionGroup[] {
+    return buildSessionGroups(this.sessions);
   }
 
   private get apiParams() {
@@ -223,6 +238,133 @@ class SessionsStore {
 
 export function createSessionsStore(): SessionsStore {
   return new SessionsStore();
+}
+
+function maxString(
+  a: string | null,
+  b: string | null,
+): string | null {
+  if (a == null) return b;
+  if (b == null) return a;
+  return a > b ? a : b;
+}
+
+function minString(
+  a: string | null,
+  b: string | null,
+): string | null {
+  if (a == null) return b;
+  if (b == null) return a;
+  return a < b ? a : b;
+}
+
+function recencyKey(s: Session): string {
+  return s.ended_at ?? s.started_at ?? s.created_at;
+}
+
+/**
+ * Walk parent_session_id chains to find the root session.
+ * If a link is missing from the loaded set, the walk stops
+ * there, forming a separate group for each disconnected
+ * subchain.
+ */
+function findRoot(
+  id: string,
+  byId: Map<string, Session>,
+  rootCache: Map<string, string>,
+): string {
+  const cached = rootCache.get(id);
+  if (cached !== undefined) return cached;
+
+  // Walk up, capping at set size to guard cycles.
+  const visited = new Set<string>();
+  let cur = id;
+  while (true) {
+    if (visited.has(cur)) break; // cycle guard
+    visited.add(cur);
+    const s = byId.get(cur);
+    if (!s?.parent_session_id) break;
+    const parent = s.parent_session_id;
+    if (!byId.has(parent)) break; // missing link
+    cur = parent;
+  }
+
+  // cur is the root — cache for every node we visited.
+  for (const v of visited) {
+    rootCache.set(v, cur);
+  }
+  return cur;
+}
+
+export function buildSessionGroups(
+  sessions: Session[],
+): SessionGroup[] {
+  const byId = new Map<string, Session>();
+  for (const s of sessions) {
+    byId.set(s.id, s);
+  }
+
+  const rootCache = new Map<string, string>();
+  const groupMap = new Map<string, SessionGroup>();
+  const insertionOrder: string[] = [];
+
+  for (const s of sessions) {
+    const root = findRoot(s.id, byId, rootCache);
+    // Sessions without a parent_session_id that aren't
+    // pointed to by anyone get root == their own id, so
+    // they form a single-session group naturally.
+    const key = root;
+
+    let group = groupMap.get(key);
+    if (!group) {
+      group = {
+        key,
+        project: s.project,
+        sessions: [],
+        primarySessionId: s.id,
+        totalMessages: 0,
+        firstMessage: null,
+        startedAt: null,
+        endedAt: null,
+      };
+      groupMap.set(key, group);
+      insertionOrder.push(key);
+    }
+
+    group.sessions.push(s);
+    group.totalMessages += s.message_count;
+    group.startedAt = minString(
+      group.startedAt,
+      s.started_at,
+    );
+    group.endedAt = maxString(group.endedAt, s.ended_at);
+  }
+
+  for (const group of groupMap.values()) {
+    if (group.sessions.length > 1) {
+      group.sessions.sort((a, b) => {
+        const ta = a.started_at ?? "";
+        const tb = b.started_at ?? "";
+        return ta < tb ? -1 : ta > tb ? 1 : 0;
+      });
+    }
+    group.firstMessage =
+      group.sessions[0]?.first_message ?? null;
+
+    let bestIdx = 0;
+    let bestKey = recencyKey(group.sessions[0]!);
+    for (let i = 1; i < group.sessions.length; i++) {
+      const key = recencyKey(group.sessions[i]!);
+      if (key > bestKey) {
+        bestKey = key;
+        bestIdx = i;
+      }
+    }
+    group.primarySessionId =
+      group.sessions[bestIdx]!.id;
+  }
+
+  return insertionOrder.map((k) => groupMap.get(k)!);
 }
 
 export const sessions = createSessionsStore();

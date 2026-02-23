@@ -769,6 +769,59 @@ func TestParseClaudeSession(t *testing.T) {
 			},
 		},
 		{
+			name: "sessionId != fileId sets ParentSessionID",
+			content: testjsonl.JoinJSONL(
+				testjsonl.ClaudeUserWithSessionIDJSON(
+					"hello", tsZero, "parent-uuid",
+				),
+				testjsonl.ClaudeAssistantJSON([]map[string]any{
+					{"type": "text", "text": "hi"},
+				}, tsZeroS1),
+			),
+			wantMsgCount: 2,
+			check: func(t *testing.T, sess ParsedSession, _ []ParsedMessage) {
+				t.Helper()
+				if sess.ParentSessionID != "parent-uuid" {
+					t.Errorf("ParentSessionID = %q, want %q",
+						sess.ParentSessionID, "parent-uuid")
+				}
+			},
+		},
+		{
+			name: "sessionId == fileId yields empty ParentSessionID",
+			content: testjsonl.JoinJSONL(
+				testjsonl.ClaudeUserWithSessionIDJSON(
+					"hello", tsZero, "test",
+				),
+			),
+			wantMsgCount: 1,
+			check: func(t *testing.T, sess ParsedSession, _ []ParsedMessage) {
+				t.Helper()
+				if sess.ParentSessionID != "" {
+					t.Errorf(
+						"ParentSessionID = %q, want empty",
+						sess.ParentSessionID,
+					)
+				}
+			},
+		},
+		{
+			name: "no sessionId field yields empty ParentSessionID",
+			content: testjsonl.JoinJSONL(
+				testjsonl.ClaudeUserJSON("hello", tsZero),
+			),
+			wantMsgCount: 1,
+			check: func(t *testing.T, sess ParsedSession, _ []ParsedMessage) {
+				t.Helper()
+				if sess.ParentSessionID != "" {
+					t.Errorf(
+						"ParentSessionID = %q, want empty",
+						sess.ParentSessionID,
+					)
+				}
+			},
+		},
+		{
 			name: "assistant with system-like content not filtered",
 			content: testjsonl.JoinJSONL(
 				testjsonl.ClaudeUserJSON("hello", tsZero),

@@ -25,6 +25,25 @@ func ClaudeUserJSON(
 	return mustMarshal(m)
 }
 
+// ClaudeUserWithSessionIDJSON returns a Claude user message
+// with a sessionId field as a JSON string.
+func ClaudeUserWithSessionIDJSON(
+	content, timestamp, sessionID string, cwd ...string,
+) string {
+	m := map[string]any{
+		"type":      "user",
+		"timestamp": timestamp,
+		"sessionId": sessionID,
+		"message": map[string]any{
+			"content": content,
+		},
+	}
+	if len(cwd) > 0 {
+		m["cwd"] = cwd[0]
+	}
+	return mustMarshal(m)
+}
+
 // ClaudeMetaUserJSON returns a Claude user message with
 // optional isMeta and isCompactSummary flags as a JSON string.
 func ClaudeMetaUserJSON(
@@ -200,6 +219,20 @@ func (b *SessionBuilder) AddClaudeUser(
 	timestamp, content string, cwd ...string,
 ) *SessionBuilder {
 	b.lines = append(b.lines, ClaudeUserJSON(content, timestamp, cwd...))
+	return b
+}
+
+// AddClaudeUserWithSessionID appends a Claude user message
+// line with a sessionId field.
+func (b *SessionBuilder) AddClaudeUserWithSessionID(
+	timestamp, content, sessionID string, cwd ...string,
+) *SessionBuilder {
+	b.lines = append(
+		b.lines,
+		ClaudeUserWithSessionIDJSON(
+			content, timestamp, sessionID, cwd...,
+		),
+	)
 	return b
 }
 
