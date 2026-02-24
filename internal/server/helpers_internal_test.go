@@ -23,6 +23,14 @@ func testServer(
 	t *testing.T, writeTimeout time.Duration,
 ) *Server {
 	t.Helper()
+	return testServerOpts(t, writeTimeout)
+}
+
+func testServerOpts(
+	t *testing.T, writeTimeout time.Duration,
+	opts ...Option,
+) *Server {
+	t.Helper()
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 	database, err := db.Open(dbPath)
@@ -38,8 +46,15 @@ func testServer(
 		DBPath:       dbPath,
 		WriteTimeout: writeTimeout,
 	}
-	engine := sync.NewEngine(database, dir, "", "", "test")
-	return New(cfg, database, engine)
+	engine := sync.NewEngine(database, dir, "", "", "", "test")
+	return New(cfg, database, engine, opts...)
+}
+
+// withHandlerDelay injects a sleep before each timeout-wrapped
+// handler, guaranteeing the handler exceeds short timeouts.
+// Used only in tests.
+func withHandlerDelay(d time.Duration) Option {
+	return func(s *Server) { s.handlerDelay = d }
 }
 
 // assertTimeoutResponse checks that the response is a 503 with

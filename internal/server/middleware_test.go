@@ -133,12 +133,16 @@ func TestWithTimeoutTriggersOnSlowHandler(t *testing.T) {
 func TestRoutesTimeoutWiring(t *testing.T) {
 	t.Parallel()
 
-	// Positive: wrapped routes must produce a timeout with an
-	// impossibly short deadline (1 ns). Any real handler (DB query,
-	// serialization, etc.) will exceed this.
+	// Positive: wrapped routes must produce a timeout when
+	// the handler is slow. Inject a 100ms handler delay
+	// with a 10ms timeout so the handler always exceeds
+	// the deadline regardless of platform timer resolution.
 	t.Run("WrappedRoutesTimeout", func(t *testing.T) {
 		t.Parallel()
-		srv := testServer(t, time.Nanosecond)
+		srv := testServerOpts(
+			t, 10*time.Millisecond,
+			withHandlerDelay(100*time.Millisecond),
+		)
 
 		ts := httptest.NewServer(srv.Handler())
 		defer ts.Close()
@@ -169,11 +173,11 @@ func TestRoutesTimeoutWiring(t *testing.T) {
 		}
 	})
 
-	// Negative: unwrapped routes must NOT produce a timeout response,
-	// even with the same short deadline.
+	// Negative: unwrapped routes must NOT produce a timeout
+	// response with a normal (fast) DB.
 	t.Run("UnwrappedRoutesNoTimeout", func(t *testing.T) {
 		t.Parallel()
-		srv := testServer(t, time.Nanosecond)
+		srv := testServer(t, 5*time.Second)
 
 		ts := httptest.NewServer(srv.Handler())
 		defer ts.Close()

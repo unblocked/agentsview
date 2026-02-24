@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -27,6 +28,7 @@ type Engine struct {
 	claudeDir     string
 	codexDir      string
 	geminiDir     string
+	opencodeDir   string
 	machine       string
 	mu            gosync.RWMutex
 	lastSync      time.Time
@@ -40,18 +42,29 @@ type Engine struct {
 	skipCache map[string]int64
 }
 
-// NewEngine creates a sync engine.
+// NewEngine creates a sync engine. It pre-populates the
+// in-memory skip cache from the database so that files
+// skipped in a prior run are not re-parsed on startup.
 func NewEngine(
 	database *db.DB,
-	claudeDir, codexDir, geminiDir, machine string,
+	claudeDir, codexDir, geminiDir,
+	opencodeDir, machine string,
 ) *Engine {
+	skipCache := make(map[string]int64)
+	if loaded, err := database.LoadSkippedFiles(); err == nil {
+		skipCache = loaded
+	} else {
+		log.Printf("loading skip cache: %v", err)
+	}
+
 	return &Engine{
-		db:        database,
-		claudeDir: claudeDir,
-		codexDir:  codexDir,
-		geminiDir: geminiDir,
-		machine:   machine,
-		skipCache: make(map[string]int64),
+		db:          database,
+		claudeDir:   claudeDir,
+		codexDir:    codexDir,
+		geminiDir:   geminiDir,
+		opencodeDir: opencodeDir,
+		machine:     machine,
+		skipCache:   skipCache,
 	}
 }
 
@@ -86,6 +99,7 @@ func (e *Engine) SyncPaths(paths []string) {
 
 	results := e.startWorkers(files)
 	stats := e.collectAndBatch(results, len(files), nil)
+	e.persistSkipCache()
 
 	e.mu.Lock()
 	e.lastSync = time.Now()
@@ -249,14 +263,112 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 		})
 	}
 
+	tWorkers := time.Now()
 	results := e.startWorkers(all)
 	stats := e.collectAndBatch(results, len(all), onProgress)
+	log.Printf(
+		"file sync: %d synced, %d skipped in %s",
+		stats.Synced, stats.Skipped,
+		time.Since(tWorkers).Round(time.Millisecond),
+	)
+
+	// Sync OpenCode sessions (DB-backed, not file-based).
+	// Uses full replace because OpenCode messages can change
+	// in place (streaming updates, tool result pairing).
+	tOC := time.Now()
+	ocPending := e.syncOpenCode()
+	if len(ocPending) > 0 {
+		stats.TotalSessions += len(ocPending)
+		stats.RecordSynced(len(ocPending))
+		tWrite := time.Now()
+		for _, pw := range ocPending {
+			e.writeSessionFull(pw)
+		}
+		log.Printf(
+			"opencode write: %d sessions in %s",
+			len(ocPending),
+			time.Since(tWrite).Round(time.Millisecond),
+		)
+	}
+	log.Printf(
+		"opencode sync: %s", time.Since(tOC).Round(time.Millisecond),
+	)
+
+	tPersist := time.Now()
+	skipCount := e.persistSkipCache()
+	log.Printf(
+		"persist skip cache (%d entries): %s",
+		skipCount,
+		time.Since(tPersist).Round(time.Millisecond),
+	)
 
 	e.mu.Lock()
 	e.lastSync = time.Now()
 	e.lastSyncStats = stats
 	e.mu.Unlock()
 	return stats
+}
+
+// syncOpenCode syncs sessions from the OpenCode SQLite database.
+// Uses per-session time_updated to detect changes, so only
+// modified sessions are fully parsed. Returns pending writes.
+func (e *Engine) syncOpenCode() []pendingWrite {
+	if e.opencodeDir == "" {
+		return nil
+	}
+	dbPath := filepath.Join(e.opencodeDir, "opencode.db")
+
+	metas, err := parser.ListOpenCodeSessionMeta(dbPath)
+	if err != nil {
+		log.Printf("sync opencode: %v", err)
+		return nil
+	}
+	if len(metas) == 0 {
+		return nil
+	}
+
+	// Compare each session's time_updated against what is
+	// stored in the agentsview DB. Only re-parse changed ones.
+	var changed []string
+	for _, m := range metas {
+		_, storedMtime, ok :=
+			e.db.GetFileInfoByPath(m.VirtualPath)
+		if ok && storedMtime == m.FileMtime {
+			continue
+		}
+		changed = append(changed, m.SessionID)
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+
+	var pending []pendingWrite
+	for _, sid := range changed {
+		sess, msgs, err := parser.ParseOpenCodeSession(
+			dbPath, sid, e.machine,
+		)
+		if err != nil {
+			log.Printf(
+				"opencode session %s: %v", sid, err,
+			)
+			continue
+		}
+		if sess == nil {
+			continue
+		}
+		pending = append(pending, pendingWrite{
+			sess: *sess,
+			msgs: msgs,
+		})
+	}
+
+	if len(pending) > 0 {
+		log.Printf(
+			"sync: %d opencode session(s) updated",
+			len(pending),
+		)
+	}
+	return pending
 }
 
 // startWorkers fans out file processing across a worker pool
@@ -427,6 +539,22 @@ func (e *Engine) clearSkip(path string) {
 	e.skipMu.Lock()
 	delete(e.skipCache, path)
 	e.skipMu.Unlock()
+	_ = e.db.DeleteSkippedFile(path)
+}
+
+// persistSkipCache writes the in-memory skip cache to the
+// database so skipped files survive process restarts.
+// Returns the number of entries persisted.
+func (e *Engine) persistSkipCache() int {
+	e.skipMu.RLock()
+	snapshot := make(map[string]int64, len(e.skipCache))
+	maps.Copy(snapshot, e.skipCache)
+	e.skipMu.RUnlock()
+
+	if err := e.db.ReplaceSkippedFiles(snapshot); err != nil {
+		log.Printf("persisting skip cache: %v", err)
+	}
+	return len(snapshot)
 }
 
 // shouldSkipFile returns true when the file's size and mtime
@@ -569,60 +697,127 @@ type pendingWrite struct {
 
 func (e *Engine) writeBatch(batch []pendingWrite) {
 	for _, pw := range batch {
-		s := db.Session{
-			ID:              pw.sess.ID,
-			Project:         pw.sess.Project,
-			Machine:         pw.sess.Machine,
-			Agent:           string(pw.sess.Agent),
-			MessageCount:    pw.sess.MessageCount,
-			ParentSessionID: strPtr(pw.sess.ParentSessionID),
-			FilePath:        strPtr(pw.sess.File.Path),
-			FileSize:        int64Ptr(pw.sess.File.Size),
-			FileMtime:       int64Ptr(pw.sess.File.Mtime),
-			FileHash:        strPtr(pw.sess.File.Hash),
-		}
-		if pw.sess.FirstMessage != "" {
-			s.FirstMessage = &pw.sess.FirstMessage
-		}
-		if !pw.sess.StartedAt.IsZero() {
-			s.StartedAt = timeutil.Ptr(pw.sess.StartedAt)
-		}
-		if !pw.sess.EndedAt.IsZero() {
-			s.EndedAt = timeutil.Ptr(pw.sess.EndedAt)
-		}
-
+		s := toDBSession(pw)
 		if err := e.db.UpsertSession(s); err != nil {
 			log.Printf("upsert session %s: %v", s.ID, err)
 			continue
 		}
+		msgs := toDBMessages(pw)
+		e.writeMessages(pw.sess.ID, msgs)
+	}
+}
 
-		msgs := make([]db.Message, len(pw.msgs))
-		for i, m := range pw.msgs {
-			msgs[i] = db.Message{
-				SessionID:     pw.sess.ID,
-				Ordinal:       m.Ordinal,
-				Role:          string(m.Role),
-				Content:       m.Content,
-				Timestamp:     timeutil.Format(m.Timestamp),
-				HasThinking:   m.HasThinking,
-				HasToolUse:    m.HasToolUse,
-				ContentLength: m.ContentLength,
-				ToolCalls: convertToolCalls(
-					pw.sess.ID, m.ToolCalls,
-				),
-				ToolResults: convertToolResults(m.ToolResults),
-			}
-		}
-		msgs = pairAndFilter(msgs)
+// writeMessages uses an incremental append when possible.
+// Session files are append-only, so if the DB already has
+// messages for this session and the new set is larger, we
+// only insert the new messages (avoiding expensive FTS5
+// delete+reinsert of existing content).
+func (e *Engine) writeMessages(
+	sessionID string, msgs []db.Message,
+) {
+	maxOrd := e.db.MaxOrdinal(sessionID)
 
-		if err := e.db.ReplaceSessionMessages(
-			pw.sess.ID, msgs,
-		); err != nil {
+	// No existing messages — insert all.
+	if maxOrd < 0 {
+		if err := e.db.InsertMessages(msgs); err != nil {
 			log.Printf(
-				"replace messages for %s: %v", pw.sess.ID, err,
+				"insert messages for %s: %v",
+				sessionID, err,
 			)
 		}
+		return
 	}
+
+	// Find new messages (ordinal > maxOrd).
+	delta := 0
+	for i, m := range msgs {
+		if m.Ordinal > maxOrd {
+			delta = len(msgs) - i
+			msgs = msgs[i:]
+			break
+		}
+	}
+
+	if delta == 0 {
+		return
+	}
+
+	if err := e.db.InsertMessages(msgs); err != nil {
+		log.Printf(
+			"append messages for %s: %v",
+			sessionID, err,
+		)
+	}
+}
+
+// writeSessionFull upserts a session and does a full
+// delete+reinsert of its messages. Used by explicit
+// single-session re-syncs where existing content may have
+// changed (not just appended).
+func (e *Engine) writeSessionFull(pw pendingWrite) {
+	s := toDBSession(pw)
+	if err := e.db.UpsertSession(s); err != nil {
+		log.Printf("upsert session %s: %v", s.ID, err)
+		return
+	}
+	msgs := toDBMessages(pw)
+	if err := e.db.ReplaceSessionMessages(
+		pw.sess.ID, msgs,
+	); err != nil {
+		log.Printf(
+			"replace messages for %s: %v",
+			pw.sess.ID, err,
+		)
+	}
+}
+
+// toDBSession converts a pendingWrite to a db.Session.
+func toDBSession(pw pendingWrite) db.Session {
+	s := db.Session{
+		ID:              pw.sess.ID,
+		Project:         pw.sess.Project,
+		Machine:         pw.sess.Machine,
+		Agent:           string(pw.sess.Agent),
+		MessageCount:    pw.sess.MessageCount,
+		ParentSessionID: strPtr(pw.sess.ParentSessionID),
+		FilePath:        strPtr(pw.sess.File.Path),
+		FileSize:        int64Ptr(pw.sess.File.Size),
+		FileMtime:       int64Ptr(pw.sess.File.Mtime),
+		FileHash:        strPtr(pw.sess.File.Hash),
+	}
+	if pw.sess.FirstMessage != "" {
+		s.FirstMessage = &pw.sess.FirstMessage
+	}
+	if !pw.sess.StartedAt.IsZero() {
+		s.StartedAt = timeutil.Ptr(pw.sess.StartedAt)
+	}
+	if !pw.sess.EndedAt.IsZero() {
+		s.EndedAt = timeutil.Ptr(pw.sess.EndedAt)
+	}
+	return s
+}
+
+// toDBMessages converts parsed messages to db.Message rows
+// with tool-result pairing and filtering applied.
+func toDBMessages(pw pendingWrite) []db.Message {
+	msgs := make([]db.Message, len(pw.msgs))
+	for i, m := range pw.msgs {
+		msgs[i] = db.Message{
+			SessionID:     pw.sess.ID,
+			Ordinal:       m.Ordinal,
+			Role:          string(m.Role),
+			Content:       m.Content,
+			Timestamp:     timeutil.Format(m.Timestamp),
+			HasThinking:   m.HasThinking,
+			HasToolUse:    m.HasToolUse,
+			ContentLength: m.ContentLength,
+			ToolCalls: convertToolCalls(
+				pw.sess.ID, m.ToolCalls,
+			),
+			ToolResults: convertToolResults(m.ToolResults),
+		}
+	}
+	return pairAndFilter(msgs)
 }
 
 func countMessages(batch []pendingWrite) int {
@@ -637,6 +832,8 @@ func countMessages(batch []pendingWrite) int {
 // session ID.
 func (e *Engine) FindSourceFile(sessionID string) string {
 	switch {
+	case strings.HasPrefix(sessionID, "opencode:"):
+		return ""
 	case strings.HasPrefix(sessionID, "codex:"):
 		return FindCodexSourceFile(e.codexDir, sessionID[6:])
 	case strings.HasPrefix(sessionID, "gemini:"):
@@ -652,6 +849,10 @@ func (e *Engine) FindSourceFile(sessionID string) string {
 // Unlike the bulk SyncAll path, this includes exec-originated
 // Codex sessions and uses the existing DB project as fallback.
 func (e *Engine) SyncSingleSession(sessionID string) error {
+	if strings.HasPrefix(sessionID, "opencode:") {
+		return e.syncSingleOpenCode(sessionID)
+	}
+
 	path := e.FindSourceFile(sessionID)
 	if path == "" {
 		return fmt.Errorf(
@@ -725,9 +926,9 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 		return nil
 	}
 
-	e.writeBatch([]pendingWrite{
-		{sess: *res.sess, msgs: res.msgs},
-	})
+	e.writeSessionFull(
+		pendingWrite{sess: *res.sess, msgs: res.msgs},
+	)
 	return nil
 }
 
@@ -749,6 +950,34 @@ func (e *Engine) processCodexIncludeExec(
 		sess.File.Hash = h
 	}
 	return processResult{sess: sess, msgs: msgs}
+}
+
+// syncSingleOpenCode re-syncs a single OpenCode session.
+func (e *Engine) syncSingleOpenCode(
+	sessionID string,
+) error {
+	if e.opencodeDir == "" {
+		return fmt.Errorf(
+			"opencode dir not configured",
+		)
+	}
+	dbPath := filepath.Join(e.opencodeDir, "opencode.db")
+	rawID := strings.TrimPrefix(sessionID, "opencode:")
+
+	sess, msgs, err := parser.ParseOpenCodeSession(
+		dbPath, rawID, e.machine,
+	)
+	if err != nil {
+		return err
+	}
+	if sess == nil {
+		return nil
+	}
+
+	e.writeSessionFull(
+		pendingWrite{sess: *sess, msgs: msgs},
+	)
+	return nil
 }
 
 func strPtr(s string) *string {
