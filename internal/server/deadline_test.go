@@ -1,7 +1,6 @@
 package server_test
 
 import (
-	"net/http"
 	"net/http/httptest"
 	"testing"
 )
@@ -35,8 +34,7 @@ func TestMiddleware_Timeout(t *testing.T) {
 			w := httptest.NewRecorder()
 			te.handler.ServeHTTP(w, req)
 
-			assertTimeoutResponse(t, w,
-				http.StatusServiceUnavailable, "request timed out")
+			assertTimeoutRace(t, w)
 		})
 	}
 }

@@ -24,15 +24,20 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-// handleContextError handles context.Canceled and context.DeadlineExceeded
-// errors by writing the appropriate HTTP response. Returns true if the
-// error was handled (i.e., it was a context error), false otherwise.
+// handleContextError checks for context.Canceled and
+// context.DeadlineExceeded. On cancellation it returns true
+// silently (client disconnected). On deadline exceeded it
+// writes a 504 and returns true. Behind withTimeout the 504
+// goes into the TimeoutHandler buffer and is discarded if
+// the middleware fires first.
 func handleContextError(w http.ResponseWriter, err error) bool {
 	if errors.Is(err, context.Canceled) {
 		return true
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		writeError(w, http.StatusGatewayTimeout, "gateway timeout")
+		writeError(
+			w, http.StatusGatewayTimeout, "gateway timeout",
+		)
 		return true
 	}
 	return false

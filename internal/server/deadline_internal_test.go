@@ -13,7 +13,6 @@ func TestHandlers_Internal_DeadlineExceeded(t *testing.T) {
 	s := testServer(t, 30*time.Second)
 
 	// Seed a session just in case handlers check for existence before context.
-	// We'll use the public methods on db to seed.
 	started := "2025-01-15T10:00:00Z"
 	sess := db.Session{
 		ID:        "s1",
@@ -52,7 +51,8 @@ func TestHandlers_Internal_DeadlineExceeded(t *testing.T) {
 
 			w := httptest.NewRecorder()
 
-			// Call handler directly, bypassing middleware
+			// Call handler directly, bypassing middleware.
+			// handleContextError writes 504 for deadline exceeded.
 			tt.handler(w, req)
 
 			assertRecorderStatus(t, w, http.StatusGatewayTimeout)

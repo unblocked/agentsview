@@ -158,6 +158,93 @@ func TestParseStreamJSON_Empty(t *testing.T) {
 	}
 }
 
+func TestCleanEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-secret")
+	t.Setenv("CLAUDECODE", "1")
+	t.Setenv("HOME", "/home/test")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "s3cret")
+	t.Setenv("PATH", "/usr/bin")
+	t.Setenv("LANG", "en_US.UTF-8")
+	t.Setenv("UNKNOWN_VAR", "should-be-dropped")
+
+	env := cleanEnv()
+
+	// Normalize keys to uppercase for cross-platform assertions
+	// (Windows may return Path instead of PATH).
+	envMap := make(map[string]string, len(env))
+	for _, e := range env {
+		k, v, _ := strings.Cut(e, "=")
+		envMap[strings.ToUpper(k)] = v
+	}
+
+	// Secrets and unknown vars must not pass through.
+	for _, blocked := range []string{
+		"ANTHROPIC_API_KEY", "CLAUDECODE",
+		"AWS_SECRET_ACCESS_KEY", "UNKNOWN_VAR",
+	} {
+		if _, ok := envMap[blocked]; ok {
+			t.Errorf("%s should not be in env", blocked)
+		}
+	}
+
+	// Allowed system vars must pass through.
+	for _, allowed := range []string{
+		"HOME", "PATH", "LANG",
+	} {
+		if _, ok := envMap[allowed]; !ok {
+			t.Errorf("%s should be preserved", allowed)
+		}
+	}
+
+	if v, ok := envMap["CLAUDE_NO_SOUND"]; !ok || v != "1" {
+		t.Errorf(
+			"CLAUDE_NO_SOUND should be 1, got %q", v,
+		)
+	}
+}
+
+func TestEnvKeyAllowed(t *testing.T) {
+	tests := []struct {
+		key  string
+		want bool
+	}{
+		{"PATH", true},
+		{"Path", true}, // Windows-style
+		{"path", true}, // lowercase
+		{"HOME", true},
+		{"Home", true},
+		{"COMSPEC", true},
+		{"ComSpec", true}, // Windows-style
+		{"LC_ALL", true},  // prefix match
+		{"XDG_CONFIG_HOME", true},
+		{"SSL_CERT_FILE", true},
+		{"HTTP_PROXY", true},
+		{"APPDATA", true},
+		{"AppData", true},
+		{"LOCALAPPDATA", true},
+		{"PROGRAMDATA", true},
+		{"PATHEXT", true},
+		{"PathExt", true},
+		{"WINDIR", true},
+		{"HOMEDRIVE", true},
+		{"HOMEPATH", true},
+		{"ANTHROPIC_API_KEY", false},
+		{"AWS_SECRET_ACCESS_KEY", false},
+		{"DATABASE_URL", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			if got := envKeyAllowed(tt.key); got != tt.want {
+				t.Errorf(
+					"envKeyAllowed(%q) = %v, want %v",
+					tt.key, got, tt.want,
+				)
+			}
+		})
+	}
+}
+
 func TestValidAgents(t *testing.T) {
 	for _, agent := range []string{
 		"claude", "codex", "gemini",
