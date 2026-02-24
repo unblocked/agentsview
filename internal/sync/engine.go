@@ -27,6 +27,7 @@ type Engine struct {
 	db            *db.DB
 	claudeDir     string
 	codexDir      string
+	copilotDir    string
 	geminiDir     string
 	opencodeDir   string
 	machine       string
@@ -47,8 +48,8 @@ type Engine struct {
 // skipped in a prior run are not re-parsed on startup.
 func NewEngine(
 	database *db.DB,
-	claudeDir, codexDir, geminiDir,
-	opencodeDir, machine string,
+	claudeDir, codexDir, copilotDir,
+	geminiDir, opencodeDir, machine string,
 ) *Engine {
 	skipCache := make(map[string]int64)
 	if loaded, err := database.LoadSkippedFiles(); err == nil {
@@ -61,6 +62,7 @@ func NewEngine(
 		db:          database,
 		claudeDir:   claudeDir,
 		codexDir:    codexDir,
+		copilotDir:  copilotDir,
 		geminiDir:   geminiDir,
 		opencodeDir: opencodeDir,
 		machine:     machine,
@@ -200,6 +202,49 @@ func (e *Engine) classifyOnePath(
 		}
 	}
 
+	// Copilot: <copilotDir>/session-state/<uuid>.jsonl
+	//      or: <copilotDir>/session-state/<uuid>/events.jsonl
+	if e.copilotDir != "" {
+		stateDir := filepath.Join(
+			e.copilotDir, "session-state",
+		)
+		if rel, ok := isUnder(stateDir, path); ok {
+			parts := strings.Split(rel, sep)
+			switch len(parts) {
+			case 1:
+				// Bare: <uuid>.jsonl — skip if a directory
+				// format exists (matching discovery precedence).
+				stem, ok := strings.CutSuffix(
+					parts[0], ".jsonl",
+				)
+				if !ok {
+					return DiscoveredFile{}, false
+				}
+				dirEvents := filepath.Join(
+					stateDir, stem, "events.jsonl",
+				)
+				if _, err := os.Stat(dirEvents); err == nil {
+					return DiscoveredFile{}, false
+				}
+				return DiscoveredFile{
+					Path:  path,
+					Agent: parser.AgentCopilot,
+				}, true
+			case 2:
+				// Directory: <uuid>/events.jsonl
+				if parts[1] != "events.jsonl" {
+					return DiscoveredFile{}, false
+				}
+				return DiscoveredFile{
+					Path:  path,
+					Agent: parser.AgentCopilot,
+				}, true
+			default:
+				return DiscoveredFile{}, false
+			}
+		}
+	}
+
 	// Gemini: <geminiDir>/tmp/<hash>/chats/session-*.json
 	if e.geminiDir != "" {
 		if rel, ok := isUnder(e.geminiDir, path); ok {
@@ -240,21 +285,27 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 	t0 := time.Now()
 	claude := DiscoverClaudeProjects(e.claudeDir)
 	codex := DiscoverCodexSessions(e.codexDir)
+	copilot := DiscoverCopilotSessions(e.copilotDir)
 	gemini := DiscoverGeminiSessions(e.geminiDir)
 
 	all := make(
 		[]DiscoveredFile, 0,
-		len(claude)+len(codex)+len(gemini),
+		len(claude)+len(codex)+len(copilot)+len(gemini),
 	)
 	all = append(all, claude...)
 	all = append(all, codex...)
+	all = append(all, copilot...)
 	all = append(all, gemini...)
 
-	log.Printf(
-		"discovered %d files (%d claude, %d codex, %d gemini) in %s",
-		len(all), len(claude), len(codex), len(gemini),
-		time.Since(t0).Round(time.Millisecond),
-	)
+	verbose := onProgress == nil
+
+	if verbose {
+		log.Printf(
+			"discovered %d files (%d claude, %d codex, %d copilot, %d gemini) in %s",
+			len(all), len(claude), len(codex), len(copilot), len(gemini),
+			time.Since(t0).Round(time.Millisecond),
+		)
+	}
 
 	if onProgress != nil {
 		onProgress(Progress{
@@ -266,11 +317,13 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 	tWorkers := time.Now()
 	results := e.startWorkers(all)
 	stats := e.collectAndBatch(results, len(all), onProgress)
-	log.Printf(
-		"file sync: %d synced, %d skipped in %s",
-		stats.Synced, stats.Skipped,
-		time.Since(tWorkers).Round(time.Millisecond),
-	)
+	if verbose {
+		log.Printf(
+			"file sync: %d synced, %d skipped in %s",
+			stats.Synced, stats.Skipped,
+			time.Since(tWorkers).Round(time.Millisecond),
+		)
+	}
 
 	// Sync OpenCode sessions (DB-backed, not file-based).
 	// Uses full replace because OpenCode messages can change
@@ -284,23 +337,30 @@ func (e *Engine) SyncAll(onProgress ProgressFunc) SyncStats {
 		for _, pw := range ocPending {
 			e.writeSessionFull(pw)
 		}
+		if verbose {
+			log.Printf(
+				"opencode write: %d sessions in %s",
+				len(ocPending),
+				time.Since(tWrite).Round(time.Millisecond),
+			)
+		}
+	}
+	if verbose {
 		log.Printf(
-			"opencode write: %d sessions in %s",
-			len(ocPending),
-			time.Since(tWrite).Round(time.Millisecond),
+			"opencode sync: %s",
+			time.Since(tOC).Round(time.Millisecond),
 		)
 	}
-	log.Printf(
-		"opencode sync: %s", time.Since(tOC).Round(time.Millisecond),
-	)
 
 	tPersist := time.Now()
 	skipCount := e.persistSkipCache()
-	log.Printf(
-		"persist skip cache (%d entries): %s",
-		skipCount,
-		time.Since(tPersist).Round(time.Millisecond),
-	)
+	if verbose {
+		log.Printf(
+			"persist skip cache (%d entries): %s",
+			skipCount,
+			time.Since(tPersist).Round(time.Millisecond),
+		)
+	}
 
 	e.mu.Lock()
 	e.lastSync = time.Now()
@@ -512,6 +572,8 @@ func (e *Engine) processFile(
 		res = e.processClaude(file, info)
 	case parser.AgentCodex:
 		res = e.processCodex(file, info)
+	case parser.AgentCopilot:
+		res = e.processCopilot(file, info)
 	case parser.AgentGemini:
 		res = e.processGemini(file, info)
 	default:
@@ -654,6 +716,31 @@ func (e *Engine) processCodex(
 	}
 	if sess == nil {
 		return processResult{} // non-interactive
+	}
+
+	hash, err := ComputeFileHash(file.Path)
+	if err == nil {
+		sess.File.Hash = hash
+	}
+
+	return processResult{sess: sess, msgs: msgs}
+}
+
+func (e *Engine) processCopilot(
+	file DiscoveredFile, info os.FileInfo,
+) processResult {
+	if e.shouldSkipByPath(file.Path, info) {
+		return processResult{skip: true}
+	}
+
+	sess, msgs, err := parser.ParseCopilotSession(
+		file.Path, e.machine,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+	if sess == nil {
+		return processResult{}
 	}
 
 	hash, err := ComputeFileHash(file.Path)
@@ -836,6 +923,10 @@ func (e *Engine) FindSourceFile(sessionID string) string {
 		return ""
 	case strings.HasPrefix(sessionID, "codex:"):
 		return FindCodexSourceFile(e.codexDir, sessionID[6:])
+	case strings.HasPrefix(sessionID, "copilot:"):
+		return FindCopilotSourceFile(
+			e.copilotDir, sessionID[8:],
+		)
 	case strings.HasPrefix(sessionID, "gemini:"):
 		return FindGeminiSourceFile(
 			e.geminiDir, sessionID[7:],
@@ -864,6 +955,8 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 	switch {
 	case strings.HasPrefix(sessionID, "codex:"):
 		agent = parser.AgentCodex
+	case strings.HasPrefix(sessionID, "copilot:"):
+		agent = parser.AgentCopilot
 	case strings.HasPrefix(sessionID, "gemini:"):
 		agent = parser.AgentGemini
 	default:
