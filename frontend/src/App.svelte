@@ -16,7 +16,15 @@
   import { ui } from "./lib/stores/ui.svelte.js";
   import { router } from "./lib/stores/router.svelte.js";
   import { registerShortcuts } from "./lib/utils/keyboard.js";
+  import { copyToClipboard } from "./lib/utils/clipboard.js";
   import type { DisplayItem } from "./lib/utils/display-items.js";
+
+  let copiedSessionId = $state("");
+
+  function sessionDisplayId(id: string): string {
+    const idx = id.indexOf(":");
+    return idx >= 0 ? id.slice(idx + 1) : id;
+  }
 
   let messageListRef:
     | {
@@ -191,6 +199,25 @@
                   })}
                 </span>
               {/if}
+              {#if session.agent === "claude" || session.agent === "codex"}
+                {@const rawId = sessionDisplayId(session.id)}
+                <button
+                  class="session-id"
+                  title={rawId}
+                  onclick={async () => {
+                    const ok = await copyToClipboard(rawId);
+                    if (ok) {
+                      const id = session.id;
+                      copiedSessionId = id;
+                      setTimeout(() => {
+                        if (copiedSessionId === id) copiedSessionId = "";
+                      }, 1500);
+                    }
+                  }}
+                >
+                  {copiedSessionId === session.id ? "Copied!" : rawId.slice(0, 8)}
+                </button>
+              {/if}
             </span>
           {/if}
         </div>
@@ -294,5 +321,23 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     flex-shrink: 0;
+  }
+
+  .session-id {
+    font-size: 10px;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    transition: color 0.15s, background 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .session-id:hover {
+    color: var(--text-secondary);
+    background: var(--bg-hover);
   }
 </style>
