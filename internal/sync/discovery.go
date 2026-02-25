@@ -20,6 +20,24 @@ var uuidRe = regexp.MustCompile(
 		`[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`,
 )
 
+// isDirOrSymlink reports whether the entry is a directory or a
+// symlink that resolves to a directory. parentDir is needed to
+// build the full path for symlink resolution.
+func isDirOrSymlink(
+	entry os.DirEntry, parentDir string,
+) bool {
+	if entry.IsDir() {
+		return true
+	}
+	if entry.Type()&os.ModeSymlink == 0 {
+		return false
+	}
+	fi, err := os.Stat(
+		filepath.Join(parentDir, entry.Name()),
+	)
+	return err == nil && fi.IsDir()
+}
+
 // DiscoveredFile holds a discovered session JSONL file.
 type DiscoveredFile struct {
 	Path    string
@@ -37,7 +55,7 @@ func DiscoverClaudeProjects(projectsDir string) []DiscoveredFile {
 
 	var files []DiscoveredFile
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !isDirOrSymlink(entry, projectsDir) {
 			continue
 		}
 
@@ -120,7 +138,7 @@ func FindClaudeSourceFile(
 
 	target := sessionID + ".jsonl"
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !isDirOrSymlink(entry, projectsDir) {
 			continue
 		}
 		candidate := filepath.Join(
@@ -271,7 +289,7 @@ func DiscoverGeminiSessions(
 
 	var files []DiscoveredFile
 	for _, hd := range hashDirs {
-		if !hd.IsDir() {
+		if !isDirOrSymlink(hd, tmpDir) {
 			continue
 		}
 		hash := hd.Name()
@@ -326,7 +344,7 @@ func FindGeminiSourceFile(
 	}
 
 	for _, hd := range hashDirs {
-		if !hd.IsDir() {
+		if !isDirOrSymlink(hd, tmpDir) {
 			continue
 		}
 		chatsDir := filepath.Join(tmpDir, hd.Name(), "chats")
