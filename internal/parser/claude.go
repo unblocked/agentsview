@@ -15,8 +15,9 @@ import (
 )
 
 var (
-	xmlTaskIDRe  = regexp.MustCompile(`<task-id>([^<]+)</task-id>`)
-	xmlToolUseRe = regexp.MustCompile(`<tool-use-id>([^<]+)</tool-use-id>`)
+	xmlTaskIDRe      = regexp.MustCompile(`<task-id>([^<]+)</task-id>`)
+	xmlToolUseRe     = regexp.MustCompile(`<tool-use-id>([^<]+)</tool-use-id>`)
+	transcriptPathRe = regexp.MustCompile(`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl`)
 )
 
 const (
@@ -57,15 +58,16 @@ func ParseClaudeSession(
 
 	// First pass: collect all valid lines with metadata.
 	var (
-		entries         []dagEntry
-		hasAnyUUID      bool
-		allHaveUUID     bool
-		parentSessionID string
-		foundParentSID  bool
-		lineIndex       int
-		subagentMap     = map[string]string{}
-		globalStart     time.Time
-		globalEnd       time.Time
+		entries               []dagEntry
+		hasAnyUUID            bool
+		allHaveUUID           bool
+		parentSessionID       string
+		foundParentSID        bool
+		foundTranscriptParent bool
+		lineIndex             int
+		subagentMap           = map[string]string{}
+		globalStart           time.Time
+		globalEnd             time.Time
 	)
 	allHaveUUID = true
 
@@ -128,6 +130,14 @@ func ParseClaudeSession(
 					parentSessionID = sid
 				}
 			}
+		}
+
+		// Fallback: detect parent via transcript path reference
+		// in the first user message content (plan-to-implementation
+		// continuations and context-overflow continuations).
+		if parentSessionID == "" && entryType == "user" && !foundTranscriptParent {
+			foundTranscriptParent = true
+			parentSessionID = extractTranscriptParent(line, sessionID)
 		}
 
 		uuid := gjson.Get(line, "uuid").Str
@@ -690,6 +700,36 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// extractTranscriptParent extracts a parent session ID from a
+// user message that contains a "read the full transcript at:"
+// reference to another session's JSONL file.
+func extractTranscriptParent(line, sessionID string) string {
+	content := gjson.Get(line, "message.content")
+	var text string
+	if content.Type == gjson.String {
+		text = content.Str
+	} else if content.IsArray() {
+		for _, item := range content.Array() {
+			if item.Get("type").Str == "text" {
+				text = item.Get("text").Str
+				break
+			}
+		}
+	}
+
+	if !strings.Contains(text, "read the full transcript at:") {
+		return ""
+	}
+
+	matches := transcriptPathRe.FindAllStringSubmatch(text, -1)
+	for _, m := range matches {
+		if m[1] != sessionID {
+			return m[1]
+		}
+	}
+	return ""
 }
 
 // isClaudeSystemMessage returns true if the content matches

@@ -213,6 +213,49 @@ func TestParseClaudeSession_ParentSessionID(t *testing.T) {
 		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
 		assert.Empty(t, sess.ParentSessionID)
 	})
+
+	t.Run("transcript path reference sets ParentSessionID", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserWithTranscriptRefJSON(
+				"Implement the following plan:",
+				tsZero,
+				"test",
+				"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+			),
+			testjsonl.ClaudeAssistantJSON([]map[string]any{
+				{"type": "text", "text": "On it."},
+			}, tsZeroS1),
+		)
+		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
+		assert.Equal(t, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", sess.ParentSessionID)
+	})
+
+	t.Run("transcript ref to self is ignored", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserWithTranscriptRefJSON(
+				"Continued session",
+				tsZero,
+				"test",
+				"test",
+			),
+		)
+		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
+		assert.Empty(t, sess.ParentSessionID)
+	})
+
+	t.Run("sessionId parent takes precedence over transcript ref", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserWithTranscriptRefJSON(
+				"Implement plan",
+				tsZero,
+				"session-parent-via-sid",
+				"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+			),
+		)
+		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
+		// sessionId != fileId -> sessionId parent wins
+		assert.Equal(t, "session-parent-via-sid", sess.ParentSessionID)
+	})
 }
 
 func TestParseClaudeSession_TokenUsage(t *testing.T) {

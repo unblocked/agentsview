@@ -277,7 +277,7 @@ func needsRebuild(path string) (bool, error) {
 			"probing schema version: %w", err,
 		)
 	}
-	return schemaVersion < 2, nil
+	return schemaVersion < 3, nil
 }
 
 func dropDatabase(path string) error {
