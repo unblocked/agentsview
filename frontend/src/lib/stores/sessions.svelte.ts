@@ -21,6 +21,7 @@ interface Filters {
   dateFrom: string;
   dateTo: string;
   recentlyActive: boolean;
+  hideUnknownProject: boolean;
   minMessages: number;
   maxMessages: number;
   minUserMessages: number;
@@ -34,6 +35,7 @@ function defaultFilters(): Filters {
     dateFrom: "",
     dateTo: "",
     recentlyActive: false,
+    hideUnknownProject: false,
     minMessages: 0,
     maxMessages: 0,
     minUserMessages: 0,
@@ -65,8 +67,14 @@ class SessionsStore {
 
   private get apiParams() {
     const f = this.filters;
+    // Don't exclude "unknown" when explicitly viewing it.
+    const exclude =
+      f.hideUnknownProject && f.project !== "unknown"
+        ? "unknown"
+        : undefined;
     return {
       project: f.project || undefined,
+      exclude_project: exclude,
       agent: f.agent || undefined,
       date: f.date || undefined,
       date_from: f.dateFrom || undefined,
@@ -105,13 +113,21 @@ class SessionsStore {
       10,
     );
 
+    const hideUnknown =
+      params["exclude_project"] === "unknown";
+    let project = params["project"] ?? "";
+    if (hideUnknown && project === "unknown") {
+      project = "";
+    }
+
     this.filters = {
-      project: params["project"] ?? "",
+      project,
       agent: params["agent"] ?? "",
       date: params["date"] ?? "",
       dateFrom: params["date_from"] ?? "",
       dateTo: params["date_to"] ?? "",
       recentlyActive: params["active_since"] === "true",
+      hideUnknownProject: hideUnknown,
       minMessages: Number.isFinite(minMsgs) ? minMsgs : 0,
       maxMessages: Number.isFinite(maxMsgs) ? maxMsgs : 0,
       minUserMessages: Number.isFinite(minUserMsgs)
@@ -279,11 +295,22 @@ class SessionsStore {
     this.load();
   }
 
+  setHideUnknownProjectFilter(hide: boolean) {
+    this.filters.hideUnknownProject = hide;
+    if (hide && this.filters.project === "unknown") {
+      this.filters.project = "";
+    }
+    this.activeSessionId = null;
+    this.resetPagination();
+    this.load();
+  }
+
   get hasActiveFilters(): boolean {
     const f = this.filters;
     return !!(
       f.agent ||
       f.recentlyActive ||
+      f.hideUnknownProject ||
       f.dateFrom ||
       f.dateTo ||
       f.date ||
