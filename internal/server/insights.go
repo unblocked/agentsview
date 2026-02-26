@@ -209,7 +209,7 @@ func (s *Server) handleGenerateInsight(
 		log.Printf("insight generate error: %v", err)
 		stream.SendJSON("error", map[string]string{
 			"message": fmt.Sprintf(
-				"%s generation failed", req.Agent,
+				"%s generation failed: %v", req.Agent, err,
 			),
 		})
 		return
