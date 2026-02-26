@@ -1293,10 +1293,11 @@ type ToolTrendEntry struct {
 
 // ToolsAnalyticsResponse wraps tool usage analytics.
 type ToolsAnalyticsResponse struct {
-	TotalCalls int                  `json:"total_calls"`
-	ByCategory []ToolCategoryCount  `json:"by_category"`
-	ByAgent    []ToolAgentBreakdown `json:"by_agent"`
-	Trend      []ToolTrendEntry     `json:"trend"`
+	TotalCalls     int                  `json:"total_calls"`
+	UnblockedCalls int                  `json:"unblocked_calls"`
+	ByCategory     []ToolCategoryCount  `json:"by_category"`
+	ByAgent        []ToolAgentBreakdown `json:"by_agent"`
+	Trend          []ToolTrendEntry     `json:"trend"`
 }
 
 // GetAnalyticsTools returns tool usage analytics aggregated
@@ -1370,13 +1371,14 @@ func (db *DB) GetAnalyticsTools(
 	type toolRow struct {
 		sessionID string
 		category  string
+		toolName  string
 	}
 	var toolRows []toolRow
 
 	err = queryChunked(sessionIDs,
 		func(chunk []string) error {
 			ph, chunkArgs := inPlaceholders(chunk)
-			q := `SELECT session_id, category
+			q := `SELECT session_id, category, tool_name
 				FROM tool_calls
 				WHERE session_id IN ` + ph
 			rows, qErr := db.reader.QueryContext(
@@ -1389,14 +1391,18 @@ func (db *DB) GetAnalyticsTools(
 			}
 			defer rows.Close()
 			for rows.Next() {
-				var sid, cat string
-				if err := rows.Scan(&sid, &cat); err != nil {
+				var sid, cat, name string
+				if err := rows.Scan(
+					&sid, &cat, &name,
+				); err != nil {
 					return fmt.Errorf(
 						"scanning tool_call: %w", err,
 					)
 				}
 				toolRows = append(toolRows, toolRow{
-					sessionID: sid, category: cat,
+					sessionID: sid,
+					category:  cat,
+					toolName:  name,
 				})
 			}
 			return rows.Err()
@@ -1413,6 +1419,7 @@ func (db *DB) GetAnalyticsTools(
 	catCounts := make(map[string]int)
 	agentCats := make(map[string]map[string]int)    // agent → cat → count
 	trendBuckets := make(map[string]map[string]int) // week → cat → count
+	unblockedCalls := 0
 
 	for _, tr := range toolRows {
 		info := sessionMap[tr.sessionID]
@@ -1428,9 +1435,14 @@ func (db *DB) GetAnalyticsTools(
 			trendBuckets[week] = make(map[string]int)
 		}
 		trendBuckets[week][tr.category]++
+
+		if strings.HasPrefix(tr.toolName, "mcp__unblocked") {
+			unblockedCalls++
+		}
 	}
 
 	resp.TotalCalls = len(toolRows)
+	resp.UnblockedCalls = unblockedCalls
 
 	// Build ByCategory sorted by count desc.
 	resp.ByCategory = make(

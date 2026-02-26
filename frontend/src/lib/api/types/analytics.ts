@@ -152,6 +152,7 @@ export interface ToolTrendEntry {
 
 export interface ToolsAnalyticsResponse {
   total_calls: number;
+  unblocked_calls: number;
   by_category: ToolCategoryCount[];
   by_agent: ToolAgentBreakdown[];
   trend: ToolTrendEntry[];
