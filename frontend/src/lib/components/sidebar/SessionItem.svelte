@@ -40,6 +40,10 @@
     formatRelativeTime(session.ended_at ?? session.started_at),
   );
 
+  let hasUnblocked = $derived(
+    session.mcp_servers?.includes("unblocked") ?? false,
+  );
+
   let totalTokens = $derived(
     session.input_tokens +
     session.output_tokens +
@@ -65,6 +69,9 @@
     ></span>
     <span class="agent-label">{session.agent}</span>
   </div>
+  {#if hasUnblocked}
+    <span class="mcp-badge" title="Uses Unblocked context">U</span>
+  {/if}
   <div class="session-info">
     <div class="session-name">{displayName}</div>
     <div class="session-meta">
@@ -212,5 +219,20 @@
     color: var(--accent-blue);
     white-space: nowrap;
     flex-shrink: 0;
+  }
+
+  .mcp-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--accent-purple) 15%, transparent);
+    color: var(--accent-purple);
+    font-size: 8px;
+    font-weight: 700;
+    flex-shrink: 0;
+    letter-spacing: 0;
   }
 </style>

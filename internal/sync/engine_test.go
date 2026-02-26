@@ -3,10 +3,12 @@
 package sync
 
 import (
+	"sort"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/wesm/agentsview/internal/db"
+	"github.com/wesm/agentsview/internal/parser"
 )
 
 func TestFilterEmptyMessages(t *testing.T) {
@@ -297,6 +299,75 @@ func TestPairToolResults(t *testing.T) {
 			pairToolResults(tt.msgs)
 			if diff := cmp.Diff(tt.want, tt.msgs); diff != "" {
 				t.Errorf("pairToolResults() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestExtractMCPServers(t *testing.T) {
+	tests := []struct {
+		name string
+		msgs []parser.ParsedMessage
+		want []string
+	}{
+		{
+			name: "no tool calls",
+			msgs: []parser.ParsedMessage{
+				{Content: "hello"},
+			},
+			want: nil,
+		},
+		{
+			name: "no MCP tools",
+			msgs: []parser.ParsedMessage{
+				{ToolCalls: []parser.ParsedToolCall{
+					{ToolName: "Read"},
+					{ToolName: "Bash"},
+				}},
+			},
+			want: nil,
+		},
+		{
+			name: "single unblocked tool",
+			msgs: []parser.ParsedMessage{
+				{ToolCalls: []parser.ParsedToolCall{
+					{ToolName: "mcp__unblocked__data_retrieval"},
+				}},
+			},
+			want: []string{"unblocked"},
+		},
+		{
+			name: "multiple servers deduplicated",
+			msgs: []parser.ParsedMessage{
+				{ToolCalls: []parser.ParsedToolCall{
+					{ToolName: "mcp__unblocked__data_retrieval"},
+					{ToolName: "mcp__slack__send_message"},
+				}},
+				{ToolCalls: []parser.ParsedToolCall{
+					{ToolName: "mcp__unblocked__context_engine"},
+					{ToolName: "Read"},
+				}},
+			},
+			want: []string{"slack", "unblocked"},
+		},
+		{
+			name: "malformed mcp prefix ignored",
+			msgs: []parser.ParsedMessage{
+				{ToolCalls: []parser.ParsedToolCall{
+					{ToolName: "mcp__"},
+				}},
+			},
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractMCPServers(tt.msgs)
+			sort.Strings(got)
+			sort.Strings(tt.want)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("extractMCPServers() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
