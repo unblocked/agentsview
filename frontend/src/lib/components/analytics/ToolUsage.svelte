@@ -21,6 +21,18 @@
     analytics.tools?.by_category ?? [],
   );
 
+  const unblockedCalls = $derived(
+    analytics.tools?.unblocked_calls ?? 0,
+  );
+
+  const unblockedPct = $derived(
+    analytics.tools && analytics.tools.total_calls > 0
+      ? Math.round(
+          (unblockedCalls / analytics.tools.total_calls) * 1000,
+        ) / 10
+      : 0,
+  );
+
   const maxCount = $derived(
     categories.length > 0
       ? Math.max(...categories.map((c) => c.count), 1)
@@ -129,6 +141,21 @@
       </button>
     </div>
   {:else if categories.length > 0}
+    {#if unblockedCalls > 0}
+      <div class="unblocked-callout">
+        <div class="unblocked-icon">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+          </svg>
+        </div>
+        <span class="unblocked-label">UNBLOCKED</span>
+        <span class="unblocked-stat">
+          {unblockedCalls.toLocaleString()} calls
+        </span>
+        <span class="unblocked-pct">{unblockedPct}%</span>
+      </div>
+    {/if}
     <div class="sections">
       <div class="section">
         <h4 class="section-title">By Category</h4>
@@ -341,6 +368,49 @@
     white-space: nowrap;
     pointer-events: none;
     z-index: 100;
+  }
+
+  .unblocked-callout {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    margin-bottom: 10px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--accent-purple) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-purple) 25%, transparent);
+  }
+
+  .unblocked-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    background: var(--accent-purple);
+    color: white;
+    flex-shrink: 0;
+  }
+
+  .unblocked-label {
+    font-size: 9px;
+    font-weight: 750;
+    letter-spacing: 0.06em;
+    color: var(--accent-purple);
+  }
+
+  .unblocked-stat {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-left: auto;
+  }
+
+  .unblocked-pct {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
   }
 
   .loading, .empty {
