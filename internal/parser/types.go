@@ -32,6 +32,7 @@ type RoleType string
 const (
 	RoleUser      RoleType = "user"
 	RoleAssistant RoleType = "assistant"
+	RoleSystem    RoleType = "system"
 )
 
 // FileInfo holds file system metadata for a session source file.

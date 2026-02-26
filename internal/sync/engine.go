@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	gosync "sync"
@@ -988,6 +990,61 @@ func extractMCPServers(msgs []parser.ParsedMessage) []string {
 	return servers
 }
 
+// mcpToolRe matches MCP tool names in JSONL lines.
+// Server names may contain underscores (e.g. plugin_slack_slack).
+var mcpToolRe = regexp.MustCompile(`"mcp__([^"]+?)__[^"]*"`)
+
+// extractSubagentMCPServers scans subagent JSONL files for MCP
+// tool names. Claude Code stores subagent transcripts in a
+// directory named after the session file (without .jsonl) under
+// a "subagents/" subfolder.
+func extractSubagentMCPServers(sessionPath string) []string {
+	if sessionPath == "" {
+		return nil
+	}
+	// e.g. /path/to/<uuid>.jsonl → /path/to/<uuid>/subagents/
+	dir := strings.TrimSuffix(sessionPath, ".jsonl")
+	subDir := filepath.Join(dir, "subagents")
+	entries, err := os.ReadDir(subDir)
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		scanFileForMCP(filepath.Join(subDir, e.Name()), seen)
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	servers := make([]string, 0, len(seen))
+	for s := range seen {
+		servers = append(servers, s)
+	}
+	return servers
+}
+
+// scanFileForMCP reads a JSONL file line by line looking for
+// MCP tool name patterns, adding discovered server names to seen.
+func scanFileForMCP(path string, seen map[string]struct{}) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 256*1024), 2*1024*1024)
+	for scanner.Scan() {
+		for _, match := range mcpToolRe.FindAllStringSubmatch(scanner.Text(), -1) {
+			if len(match) >= 2 && match[1] != "" {
+				seen[match[1]] = struct{}{}
+			}
+		}
+	}
+}
+
 // toDBSession converts a pendingWrite to a db.Session.
 func toDBSession(pw pendingWrite) db.Session {
 	var tokensByModelJSON db.RawJSON
@@ -997,7 +1054,22 @@ func toDBSession(pw pendingWrite) db.Session {
 		}
 	}
 	var mcpServersJSON db.RawJSON
-	if servers := extractMCPServers(pw.msgs); len(servers) > 0 {
+	servers := extractMCPServers(pw.msgs)
+	// Merge MCP servers discovered in subagent files.
+	if subServers := extractSubagentMCPServers(pw.sess.File.Path); len(subServers) > 0 {
+		seen := make(map[string]struct{}, len(servers)+len(subServers))
+		for _, s := range servers {
+			seen[s] = struct{}{}
+		}
+		for _, s := range subServers {
+			seen[s] = struct{}{}
+		}
+		servers = make([]string, 0, len(seen))
+		for s := range seen {
+			servers = append(servers, s)
+		}
+	}
+	if len(servers) > 0 {
 		if b, err := json.Marshal(servers); err == nil {
 			mcpServersJSON = db.RawJSON(b)
 		}

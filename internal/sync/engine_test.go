@@ -3,6 +3,8 @@
 package sync
 
 import (
+	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 
@@ -370,5 +372,49 @@ func TestExtractMCPServers(t *testing.T) {
 				t.Errorf("extractMCPServers() mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestExtractSubagentMCPServers(t *testing.T) {
+	// Create a fake session directory with subagent JSONL files.
+	dir := t.TempDir()
+	sessionFile := filepath.Join(dir, "abc123.jsonl")
+	if err := os.WriteFile(sessionFile, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	subDir := filepath.Join(dir, "abc123", "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write a subagent file that uses unblocked and slack tools.
+	subagentContent := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__unblocked__context_engine"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__plugin_slack_slack__send_message"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read"}]}}
+`
+	if err := os.WriteFile(filepath.Join(subDir, "agent-a123.jsonl"), []byte(subagentContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := extractSubagentMCPServers(sessionFile)
+	sort.Strings(got)
+	want := []string{"plugin_slack_slack", "unblocked"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("extractSubagentMCPServers() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestExtractSubagentMCPServersNoDir(t *testing.T) {
+	got := extractSubagentMCPServers("/nonexistent/path.jsonl")
+	if got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+}
+
+func TestExtractSubagentMCPServersEmpty(t *testing.T) {
+	got := extractSubagentMCPServers("")
+	if got != nil {
+		t.Errorf("expected nil, got %v", got)
 	}
 }

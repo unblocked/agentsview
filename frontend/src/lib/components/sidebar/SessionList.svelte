@@ -270,6 +270,11 @@
               groupSessionIds={group.sessions.length > 1
                 ? group.sessions.map((s) => s.id)
                 : undefined}
+              groupTotalTokens={group.totalTokens}
+              groupMcpServers={group.mcpServers}
+              groupFirstMessage={group.sessions.length > 1
+                ? group.firstMessage
+                : undefined}
             />
           {/if}
         {/if}

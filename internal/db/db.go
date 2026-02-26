@@ -259,7 +259,25 @@ func needsRebuild(path string) (bool, error) {
 			"probing schema: %w", err,
 		)
 	}
-	return resultContentCount == 0, nil
+	if resultContentCount == 0 {
+		return true, nil
+	}
+
+	// Check schema_version to trigger re-parse when new
+	// columns or parsing changes are introduced (e.g.
+	// system messages that were previously dropped).
+	var schemaVersion int
+	err = conn.QueryRow(
+		`SELECT COALESCE(
+			(SELECT value FROM stats WHERE key = 'schema_version'),
+			0)`,
+	).Scan(&schemaVersion)
+	if err != nil {
+		return false, fmt.Errorf(
+			"probing schema version: %w", err,
+		)
+	}
+	return schemaVersion < 3, nil
 }
 
 func dropDatabase(path string) error {

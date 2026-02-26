@@ -108,28 +108,34 @@ func TestParseClaudeSession_EdgeCases(t *testing.T) {
 	})
 }
 
-func TestParseClaudeSession_SkippedMessages(t *testing.T) {
-	t.Run("skips isMeta user messages", func(t *testing.T) {
+func TestParseClaudeSession_SystemMessages(t *testing.T) {
+	t.Run("isMeta user messages tagged as system", func(t *testing.T) {
 		content := testjsonl.JoinJSONL(
 			testjsonl.ClaudeMetaUserJSON("meta context", tsZero, true, false),
 			testjsonl.ClaudeUserJSON("real question", tsZeroS1),
 		)
-		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
-		assert.Equal(t, 1, sess.MessageCount)
+		sess, msgs := runClaudeParserTest(t, "test.jsonl", content)
+		assert.Equal(t, 2, sess.MessageCount)
+		assert.Equal(t, 1, sess.UserMessageCount)
+		assert.Equal(t, RoleSystem, msgs[0].Role)
+		assert.Equal(t, RoleUser, msgs[1].Role)
 		assert.Equal(t, "real question", sess.FirstMessage)
 	})
 
-	t.Run("skips isCompactSummary user messages", func(t *testing.T) {
+	t.Run("isCompactSummary user messages tagged as system", func(t *testing.T) {
 		content := testjsonl.JoinJSONL(
 			testjsonl.ClaudeMetaUserJSON("summary of prior turns", tsZero, false, true),
 			testjsonl.ClaudeUserJSON("actual prompt", tsZeroS1),
 		)
-		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
-		assert.Equal(t, 1, sess.MessageCount)
+		sess, msgs := runClaudeParserTest(t, "test.jsonl", content)
+		assert.Equal(t, 2, sess.MessageCount)
+		assert.Equal(t, 1, sess.UserMessageCount)
+		assert.Equal(t, RoleSystem, msgs[0].Role)
+		assert.Equal(t, RoleUser, msgs[1].Role)
 		assert.Equal(t, "actual prompt", sess.FirstMessage)
 	})
 
-	t.Run("skips content-heuristic system messages", func(t *testing.T) {
+	t.Run("content-heuristic system messages tagged as system", func(t *testing.T) {
 		content := testjsonl.JoinJSONL(
 			testjsonl.ClaudeUserJSON("This session is being continued from a previous conversation.", tsZero),
 			testjsonl.ClaudeUserJSON("[Request interrupted by user]", tsZeroS1),
@@ -141,20 +147,27 @@ func TestParseClaudeSession_SkippedMessages(t *testing.T) {
 			testjsonl.ClaudeUserJSON("real user message", "2024-01-01T00:00:07Z"),
 		)
 		sess, msgs := runClaudeParserTest(t, "test.jsonl", content)
-		assert.Equal(t, 1, sess.MessageCount)
-		assert.Equal(t, "real user message", msgs[0].Content)
+		assert.Equal(t, 8, sess.MessageCount)
+		assert.Equal(t, 1, sess.UserMessageCount)
+		for i := 0; i < 7; i++ {
+			assert.Equal(t, RoleSystem, msgs[i].Role, "msgs[%d] should be system", i)
+		}
+		assert.Equal(t, RoleUser, msgs[7].Role)
+		assert.Equal(t, "real user message", msgs[7].Content)
 		assert.Equal(t, "real user message", sess.FirstMessage)
 	})
 
-	t.Run("assistant with system-like content not filtered", func(t *testing.T) {
+	t.Run("assistant with system-like content not tagged as system", func(t *testing.T) {
 		content := testjsonl.JoinJSONL(
 			testjsonl.ClaudeUserJSON("hello", tsZero),
 			testjsonl.ClaudeAssistantJSON([]map[string]any{
 				{"type": "text", "text": "This session is being continued from a previous conversation."},
 			}, tsZeroS1),
 		)
-		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
+		sess, msgs := runClaudeParserTest(t, "test.jsonl", content)
 		assert.Equal(t, 2, sess.MessageCount)
+		assert.Equal(t, RoleUser, msgs[0].Role)
+		assert.Equal(t, RoleAssistant, msgs[1].Role)
 	})
 
 	t.Run("firstMsg from first non-system user message", func(t *testing.T) {
@@ -163,8 +176,12 @@ func TestParseClaudeSession_SkippedMessages(t *testing.T) {
 			testjsonl.ClaudeUserJSON("This session is being continued from a previous conversation.", tsZeroS1),
 			testjsonl.ClaudeUserJSON("Fix the auth bug", tsZeroS2),
 		)
-		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
-		assert.Equal(t, 1, sess.MessageCount)
+		sess, msgs := runClaudeParserTest(t, "test.jsonl", content)
+		assert.Equal(t, 3, sess.MessageCount)
+		assert.Equal(t, 1, sess.UserMessageCount)
+		assert.Equal(t, RoleSystem, msgs[0].Role)
+		assert.Equal(t, RoleSystem, msgs[1].Role)
+		assert.Equal(t, RoleUser, msgs[2].Role)
 		assert.Equal(t, "Fix the auth bug", sess.FirstMessage)
 	})
 }
@@ -195,6 +212,49 @@ func TestParseClaudeSession_ParentSessionID(t *testing.T) {
 		)
 		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
 		assert.Empty(t, sess.ParentSessionID)
+	})
+
+	t.Run("transcript path reference sets ParentSessionID", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserWithTranscriptRefJSON(
+				"Implement the following plan:",
+				tsZero,
+				"test",
+				"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+			),
+			testjsonl.ClaudeAssistantJSON([]map[string]any{
+				{"type": "text", "text": "On it."},
+			}, tsZeroS1),
+		)
+		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
+		assert.Equal(t, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", sess.ParentSessionID)
+	})
+
+	t.Run("transcript ref to self is ignored", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserWithTranscriptRefJSON(
+				"Continued session",
+				tsZero,
+				"test",
+				"test",
+			),
+		)
+		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
+		assert.Empty(t, sess.ParentSessionID)
+	})
+
+	t.Run("sessionId parent takes precedence over transcript ref", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserWithTranscriptRefJSON(
+				"Implement plan",
+				tsZero,
+				"session-parent-via-sid",
+				"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+			),
+		)
+		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
+		// sessionId != fileId -> sessionId parent wins
+		assert.Equal(t, "session-parent-via-sid", sess.ParentSessionID)
 	})
 }
 

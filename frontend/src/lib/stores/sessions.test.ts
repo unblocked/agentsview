@@ -212,36 +212,20 @@ describe("SessionsStore", () => {
       vi.mocked(api.listSessions)
         .mockResolvedValueOnce({
           sessions: [
-            {
+            makeSession({
               id: "s1",
-              project: "proj",
-              machine: "m",
-              agent: "a",
-              first_message: null,
-              started_at: null,
-              ended_at: null,
-              message_count: 1,
-              user_message_count: 1,
               created_at: "2024-01-01T00:00:00Z",
-            },
+            }),
           ],
           total: 2,
           next_cursor: "cur1",
         })
         .mockResolvedValueOnce({
           sessions: [
-            {
+            makeSession({
               id: "s2",
-              project: "proj",
-              machine: "m",
-              agent: "a",
-              first_message: null,
-              started_at: null,
-              ended_at: null,
-              message_count: 1,
-              user_message_count: 1,
               created_at: "2024-01-01T00:00:01Z",
-            },
+            }),
           ],
           total: 2,
         });
@@ -533,6 +517,10 @@ function makeSession(
     ended_at: null,
     message_count: 1,
     user_message_count: 1,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
     created_at: "2024-01-01T00:00:00Z",
     ...overrides,
   };
@@ -809,6 +797,84 @@ describe("buildSessionGroups", () => {
     const groups = buildSessionGroups(sessions);
     expect(groups[0]!.sessions[0]!.id).toBe("s1");
     expect(groups[0]!.sessions[1]!.id).toBe("s2");
+  });
+
+  it("aggregates tokens across continuation chain", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        started_at: "2024-01-01T00:00:00Z",
+        ended_at: "2024-01-01T01:00:00Z",
+        input_tokens: 1000,
+        output_tokens: 500,
+        cache_creation_input_tokens: 200,
+        cache_read_input_tokens: 100,
+      }),
+      makeSession({
+        id: "s2",
+        parent_session_id: "s1",
+        started_at: "2024-01-01T02:00:00Z",
+        ended_at: "2024-01-01T03:00:00Z",
+        input_tokens: 2000,
+        output_tokens: 800,
+        cache_creation_input_tokens: 300,
+        cache_read_input_tokens: 150,
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.totalTokens).toBe(
+      1000 + 500 + 200 + 100 + 2000 + 800 + 300 + 150,
+    );
+  });
+
+  it("merges mcp_servers across continuation chain", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        started_at: "2024-01-01T00:00:00Z",
+        mcp_servers: ["unblocked"],
+      }),
+      makeSession({
+        id: "s2",
+        parent_session_id: "s1",
+        started_at: "2024-01-01T02:00:00Z",
+        mcp_servers: ["slack"],
+      }),
+      makeSession({
+        id: "s3",
+        parent_session_id: "s2",
+        started_at: "2024-01-01T04:00:00Z",
+        mcp_servers: ["unblocked", "slack"],
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.mcpServers.sort()).toEqual([
+      "slack",
+      "unblocked",
+    ]);
+  });
+
+  it("inherits parent mcp_servers for continuation without servers", () => {
+    const sessions = [
+      makeSession({
+        id: "s1",
+        started_at: "2024-01-01T00:00:00Z",
+        mcp_servers: ["unblocked"],
+      }),
+      makeSession({
+        id: "s2",
+        parent_session_id: "s1",
+        started_at: "2024-01-01T02:00:00Z",
+      }),
+    ];
+
+    const groups = buildSessionGroups(sessions);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.mcpServers).toEqual(["unblocked"]);
   });
 
   it("handles empty sessions array", () => {

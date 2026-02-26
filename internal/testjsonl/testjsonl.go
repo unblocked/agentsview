@@ -85,6 +85,27 @@ func ClaudeToolResultUserJSON(
 	return mustMarshal(m)
 }
 
+// ClaudeUserWithTranscriptRefJSON returns a Claude user message
+// containing a "read the full transcript at:" reference to
+// another session's JSONL file.
+func ClaudeUserWithTranscriptRefJSON(
+	content, timestamp, sessionID, parentID string,
+) string {
+	fullContent := content +
+		"\n\nIf you need specific details from before compaction, " +
+		"read the full transcript at: /home/user/.claude/projects/test/" +
+		parentID + ".jsonl"
+	m := map[string]any{
+		"type":      "user",
+		"timestamp": timestamp,
+		"sessionId": sessionID,
+		"message": map[string]any{
+			"content": fullContent,
+		},
+	}
+	return mustMarshal(m)
+}
+
 // ClaudeAssistantJSON returns a Claude assistant message as a
 // JSON string.
 func ClaudeAssistantJSON(content any, timestamp string) string {

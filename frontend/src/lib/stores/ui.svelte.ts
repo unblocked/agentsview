@@ -20,6 +20,7 @@ function readStoredTheme(): Theme | null {
 class UIStore {
   theme: Theme = $state(readStoredTheme() || "light");
   showThinking: boolean = $state(true);
+  showSystem: boolean = $state(false);
   sortNewestFirst: boolean = $state(false);
   activeModal: ModalType = $state(null);
   selectedOrdinal: number | null = $state(null);
@@ -65,6 +66,10 @@ class UIStore {
 
   toggleThinking() {
     this.showThinking = !this.showThinking;
+  }
+
+  toggleSystem() {
+    this.showSystem = !this.showSystem;
   }
 
   toggleSort() {
