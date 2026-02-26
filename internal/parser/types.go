@@ -87,6 +87,7 @@ type ParsedToolCall struct {
 type ParsedToolResult struct {
 	ToolUseID     string
 	ContentLength int
+	Content       string
 }
 
 // ParsedMessage holds a single extracted message.
