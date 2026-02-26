@@ -10,6 +10,7 @@
     groupSessionIds?: string[];
     groupTotalTokens?: number;
     groupMcpServers?: string[];
+    groupFirstMessage?: string | null;
   }
 
   let {
@@ -18,6 +19,7 @@
     groupSessionIds,
     groupTotalTokens,
     groupMcpServers,
+    groupFirstMessage,
   }: Props = $props();
 
   let isActive = $derived(
@@ -34,9 +36,11 @@
     getAgentColor(session.agent),
   );
 
+  let effectiveFirstMessage = $derived(groupFirstMessage ?? session.first_message);
+
   let displayName = $derived(
-    session.first_message
-      ? truncate(session.first_message, 50)
+    effectiveFirstMessage
+      ? truncate(effectiveFirstMessage, 50)
       : truncate(session.project, 30),
   );
 

@@ -15,6 +15,7 @@ class MessagesStore {
   messages: Message[] = $state([]);
   loading: boolean = $state(false);
   sessionId: string | null = $state(null);
+  chainSessionIds: string[] = $state([]);
   messageCount: number = $state(0);
   hasOlder: boolean = $state(false);
   loadingOlder: boolean = $state(false);
@@ -24,9 +25,79 @@ class MessagesStore {
   private pendingReload: boolean = false;
   private loadOlderPromise: Promise<void> | null = null;
 
+  async loadChain(sessionIds: string[]) {
+    if (sessionIds.length === 0) return;
+    const key = sessionIds.join(",");
+    if (
+      this.chainSessionIds.join(",") === key &&
+      (this.messages.length > 0 || this.loading)
+    ) {
+      return;
+    }
+    this.clear();
+    this.chainSessionIds = sessionIds;
+    this.sessionId = sessionIds[sessionIds.length - 1]!;
+    this.loading = true;
+
+    const ac = new AbortController();
+    this.abortController = ac;
+
+    try {
+      const allMessages: Message[] = [];
+      let globalOrdinal = 0;
+
+      for (const sid of sessionIds) {
+        if (ac.signal.aborted) return;
+        let from = 0;
+        for (;;) {
+          const res = await api.getMessages(
+            sid,
+            {
+              from,
+              limit: MESSAGE_PAGE_SIZE,
+              direction: "asc",
+            },
+            { signal: ac.signal },
+          );
+          if (res.messages.length === 0) break;
+          for (const m of res.messages) {
+            allMessages.push({
+              ...m,
+              ordinal: globalOrdinal++,
+              session_id: sid,
+            });
+          }
+          if (res.messages.length < MESSAGE_PAGE_SIZE)
+            break;
+          const last =
+            res.messages[res.messages.length - 1];
+          if (!last) break;
+          const nextFrom = last.ordinal + 1;
+          if (nextFrom <= from) break;
+          from = nextFrom;
+        }
+      }
+
+      if (ac.signal.aborted) return;
+      this.messages = allMessages;
+      this.messageCount = allMessages.length;
+      this.hasOlder = false;
+    } catch (err) {
+      if (isAbortError(err)) return;
+      console.warn("Failed to load chain messages:", err);
+    } finally {
+      if (
+        this.chainSessionIds.join(",") === key
+      ) {
+        this.loading = false;
+      }
+    }
+  }
+
   async loadSession(id: string) {
     if (
       this.sessionId === id &&
+      this.chainSessionIds.length === 0 &&
       (this.messages.length > 0 || this.loading)
     ) {
       return;
@@ -78,6 +149,13 @@ class MessagesStore {
   reload(): Promise<void> {
     if (!this.sessionId) return Promise.resolve();
 
+    // Chain sessions: reload the full chain
+    if (this.chainSessionIds.length > 1) {
+      const ids = [...this.chainSessionIds];
+      this.chainSessionIds = [];
+      return this.loadChain(ids);
+    }
+
     if (
       this.reloadPromise &&
       this.reloadSessionId === this.sessionId
@@ -108,6 +186,7 @@ class MessagesStore {
     this.abortController = null;
     this.messages = [];
     this.sessionId = null;
+    this.chainSessionIds = [];
     this.loading = false;
     this.messageCount = 0;
     this.hasOlder = false;

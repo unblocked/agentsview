@@ -507,11 +507,12 @@ func extractMessages(entries []dagEntry) (
 			}
 		}
 
-		// Tier 1: skip system-injected user entries.
+		// Detect system-injected user entries.
+		isSystem := false
 		if e.entryType == "user" {
 			if gjson.Get(e.line, "isMeta").Bool() ||
 				gjson.Get(e.line, "isCompactSummary").Bool() {
-				continue
+				isSystem = true
 			}
 		}
 
@@ -522,14 +523,20 @@ func extractMessages(entries []dagEntry) (
 			continue
 		}
 
-		// Tier 2: skip known system-injected patterns.
-		if e.entryType == "user" && isClaudeSystemMessage(text) {
-			continue
+		// Detect known system-injected patterns.
+		if e.entryType == "user" && !isSystem &&
+			isClaudeSystemMessage(text) {
+			isSystem = true
+		}
+
+		role := RoleType(e.entryType)
+		if isSystem {
+			role = RoleSystem
 		}
 
 		messages = append(messages, ParsedMessage{
 			Ordinal:       ordinal,
-			Role:          RoleType(e.entryType),
+			Role:          role,
 			Content:       text,
 			Timestamp:     e.timestamp,
 			HasThinking:   hasThinking,

@@ -63,6 +63,17 @@ class SessionsStore {
     );
   }
 
+  get activeSessionChain(): string[] | null {
+    if (!this.activeSessionId) return null;
+    const group = this.groupedSessions.find((g) =>
+      g.sessions.some(
+        (s) => s.id === this.activeSessionId,
+      ),
+    );
+    if (!group || group.sessions.length <= 1) return null;
+    return group.sessions.map((s) => s.id);
+  }
+
   get groupedSessions(): SessionGroup[] {
     return buildSessionGroups(this.sessions);
   }

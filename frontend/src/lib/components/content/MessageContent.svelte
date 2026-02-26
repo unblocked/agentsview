@@ -25,34 +25,46 @@
   );
 
   let isUser = $derived(message.role === "user");
+  let isSystem = $derived(message.role === "system");
 
   let accentColor = $derived(
-    isUser ? "var(--accent-blue)" : "var(--accent-purple)",
+    isSystem
+      ? "var(--text-muted)"
+      : isUser
+        ? "var(--accent-blue)"
+        : "var(--accent-purple)",
   );
 
   let roleBg = $derived(
-    isUser ? "var(--user-bg)" : "var(--assistant-bg)",
+    isSystem
+      ? "var(--bg-inset)"
+      : isUser
+        ? "var(--user-bg)"
+        : "var(--assistant-bg)",
   );
 </script>
 
 <div
   class="message"
   class:is-user={isUser}
+  class:is-system={isSystem}
   style:border-left-color={accentColor}
+  style:border-left-style={isSystem ? "dashed" : "solid"}
   style:background={roleBg}
+  style:opacity={isSystem ? "0.7" : undefined}
 >
   <div class="message-header">
     <span
       class="role-icon"
       style:background={accentColor}
     >
-      {isUser ? "U" : "A"}
+      {isSystem ? "S" : isUser ? "U" : "A"}
     </span>
     <span
       class="role-label"
       style:color={accentColor}
     >
-      {isUser ? "User" : "Assistant"}
+      {isSystem ? "System" : isUser ? "User" : "Assistant"}
     </span>
     <span class="timestamp">
       {formatTimestamp(message.timestamp)}

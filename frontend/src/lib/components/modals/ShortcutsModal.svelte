@@ -10,6 +10,7 @@
     { key: "[", action: "Previous session" },
     { key: "o", action: "Toggle sort order" },
     { key: "t", action: "Toggle thinking blocks" },
+    { key: "s", action: "Toggle system messages" },
     { key: "r", action: "Trigger sync" },
     { key: "e", action: "Export session" },
     { key: "p", action: "Publish to Gist" },
