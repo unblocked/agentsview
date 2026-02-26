@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
     cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
     token_usage_by_model TEXT,
+    mcp_servers TEXT,
     file_path   TEXT,
     file_size   INTEGER,
     file_mtime  INTEGER,
@@ -106,6 +107,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
     input_json  TEXT,
     skill_name  TEXT,
     result_content_length INTEGER,
+    result_content TEXT,
     subagent_session_id TEXT
 );
 

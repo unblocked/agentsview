@@ -225,6 +225,18 @@
             </span>
           {/if}
         </div>
+        {#if session?.mcp_servers?.includes("unblocked")}
+          <div class="unblocked-banner">
+            <div class="unblocked-banner-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+              </svg>
+            </div>
+            <span class="unblocked-banner-label">UNBLOCKED</span>
+            <span class="unblocked-banner-text">This session used Unblocked for organizational context</span>
+          </div>
+        {/if}
         {#if session}
           <TokenUsagePanel {session} />
         {/if}
@@ -358,5 +370,39 @@
   .session-id:hover {
     color: var(--text-secondary);
     background: var(--bg-hover);
+  }
+
+  .unblocked-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: color-mix(in srgb, var(--accent-purple) 10%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent-purple) 25%, transparent);
+    flex-shrink: 0;
+  }
+
+  .unblocked-banner-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    background: var(--accent-purple);
+    color: white;
+    flex-shrink: 0;
+  }
+
+  .unblocked-banner-label {
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: 0.06em;
+    color: var(--accent-purple);
+  }
+
+  .unblocked-banner-text {
+    font-size: 11px;
+    color: var(--text-muted);
   }
 </style>

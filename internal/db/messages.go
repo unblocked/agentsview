@@ -35,13 +35,15 @@ type ToolCall struct {
 	InputJSON           string `json:"input_json,omitempty"`
 	SkillName           string `json:"skill_name,omitempty"`
 	ResultContentLength int    `json:"result_content_length,omitempty"`
+	ResultContent       string `json:"result_content,omitempty"`
 	SubagentSessionID   string `json:"subagent_session_id,omitempty"`
 }
 
-// ToolResult holds a tool_result content length for pairing.
+// ToolResult holds a tool_result content and length for pairing.
 type ToolResult struct {
 	ToolUseID     string
 	ContentLength int
+	Content       string
 }
 
 // Message represents a row in the messages table.
@@ -255,8 +257,9 @@ func insertToolCallsTx(
 		INSERT INTO tool_calls
 			(message_id, session_id, tool_name, category,
 			 tool_use_id, input_json, skill_name,
-			 result_content_length, subagent_session_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+			 result_content_length, result_content,
+			 subagent_session_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("preparing tool_calls insert: %w", err)
 	}
@@ -270,6 +273,7 @@ func insertToolCallsTx(
 			nilIfEmpty(tc.InputJSON),
 			nilIfEmpty(tc.SkillName),
 			nilIfZero(tc.ResultContentLength),
+			nilIfEmpty(tc.ResultContent),
 			nilIfEmpty(tc.SubagentSessionID),
 		); err != nil {
 			return fmt.Errorf(
@@ -420,7 +424,8 @@ func (db *DB) attachToolCallsBatch(
 	query := fmt.Sprintf(`
 		SELECT message_id, session_id, tool_name, category,
 			tool_use_id, input_json, skill_name,
-			result_content_length, subagent_session_id
+			result_content_length, result_content,
+			subagent_session_id
 		FROM tool_calls
 		WHERE message_id IN (%s)
 		ORDER BY id`,
@@ -435,13 +440,14 @@ func (db *DB) attachToolCallsBatch(
 	for rows.Next() {
 		var tc ToolCall
 		var toolUseID, inputJSON, skillName sql.NullString
-		var subagentSessionID sql.NullString
+		var resultContent, subagentSessionID sql.NullString
 		var resultLen sql.NullInt64
 		if err := rows.Scan(
 			&tc.MessageID, &tc.SessionID,
 			&tc.ToolName, &tc.Category,
 			&toolUseID, &inputJSON, &skillName,
-			&resultLen, &subagentSessionID,
+			&resultLen, &resultContent,
+			&subagentSessionID,
 		); err != nil {
 			return fmt.Errorf("scanning tool_call: %w", err)
 		}
@@ -456,6 +462,9 @@ func (db *DB) attachToolCallsBatch(
 		}
 		if resultLen.Valid {
 			tc.ResultContentLength = int(resultLen.Int64)
+		}
+		if resultContent.Valid {
+			tc.ResultContent = resultContent.String
 		}
 		if subagentSessionID.Valid {
 			tc.SubagentSessionID = subagentSessionID.String
@@ -546,6 +555,7 @@ func resolveToolCalls(
 				InputJSON:           tc.InputJSON,
 				SkillName:           tc.SkillName,
 				ResultContentLength: tc.ResultContentLength,
+				ResultContent:       tc.ResultContent,
 				SubagentSessionID:   tc.SubagentSessionID,
 			})
 		}

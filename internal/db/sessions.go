@@ -58,7 +58,7 @@ const sessionBaseCols = `id, project, machine, agent,
 	message_count, user_message_count,
 	input_tokens, output_tokens,
 	cache_creation_input_tokens, cache_read_input_tokens,
-	token_usage_by_model,
+	token_usage_by_model, mcp_servers,
 	parent_session_id, relationship_type, created_at`
 
 // sessionPruneCols extends sessionBaseCols with file metadata
@@ -68,7 +68,7 @@ const sessionPruneCols = `id, project, machine, agent,
 	message_count, user_message_count,
 	input_tokens, output_tokens,
 	cache_creation_input_tokens, cache_read_input_tokens,
-	token_usage_by_model,
+	token_usage_by_model, mcp_servers,
 	parent_session_id, relationship_type,
 	file_path, file_size, created_at`
 
@@ -78,7 +78,7 @@ const sessionFullCols = `id, project, machine, agent,
 	message_count, user_message_count,
 	input_tokens, output_tokens,
 	cache_creation_input_tokens, cache_read_input_tokens,
-	token_usage_by_model,
+	token_usage_by_model, mcp_servers,
 	parent_session_id, relationship_type,
 	file_path, file_size, file_mtime,
 	file_hash, created_at`
@@ -105,7 +105,7 @@ func scanSessionRow(rs rowScanner) (Session, error) {
 		&s.MessageCount, &s.UserMessageCount,
 		&s.InputTokens, &s.OutputTokens,
 		&s.CacheCreationInputTokens, &s.CacheReadInputTokens,
-		&s.TokenUsageByModel,
+		&s.TokenUsageByModel, &s.MCPServers,
 		&s.ParentSessionID, &s.RelationshipType,
 		&s.CreatedAt,
 	)
@@ -128,6 +128,7 @@ type Session struct {
 	CacheCreationInputTokens int64   `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     int64   `json:"cache_read_input_tokens"`
 	TokenUsageByModel        RawJSON `json:"token_usage_by_model,omitempty"`
+	MCPServers               RawJSON `json:"mcp_servers,omitempty"`
 	ParentSessionID          *string `json:"parent_session_id,omitempty"`
 	RelationshipType         string  `json:"relationship_type,omitempty"`
 	FilePath                 *string `json:"file_path,omitempty"`
@@ -417,7 +418,7 @@ func (db *DB) GetSessionFull(
 		&s.MessageCount, &s.UserMessageCount,
 		&s.InputTokens, &s.OutputTokens,
 		&s.CacheCreationInputTokens, &s.CacheReadInputTokens,
-		&s.TokenUsageByModel,
+		&s.TokenUsageByModel, &s.MCPServers,
 		&s.ParentSessionID, &s.RelationshipType,
 		&s.FilePath, &s.FileSize,
 		&s.FileMtime, &s.FileHash, &s.CreatedAt,
@@ -443,10 +444,10 @@ func (db *DB) UpsertSession(s Session) error {
 			user_message_count,
 			input_tokens, output_tokens,
 			cache_creation_input_tokens, cache_read_input_tokens,
-			token_usage_by_model,
+			token_usage_by_model, mcp_servers,
 			parent_session_id, relationship_type,
 			file_path, file_size, file_mtime, file_hash
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			project = excluded.project,
 			machine = excluded.machine,
@@ -461,6 +462,7 @@ func (db *DB) UpsertSession(s Session) error {
 			cache_creation_input_tokens = excluded.cache_creation_input_tokens,
 			cache_read_input_tokens = excluded.cache_read_input_tokens,
 			token_usage_by_model = excluded.token_usage_by_model,
+			mcp_servers = excluded.mcp_servers,
 			parent_session_id = excluded.parent_session_id,
 			relationship_type = excluded.relationship_type,
 			file_path = excluded.file_path,
@@ -472,7 +474,7 @@ func (db *DB) UpsertSession(s Session) error {
 		s.UserMessageCount,
 		s.InputTokens, s.OutputTokens,
 		s.CacheCreationInputTokens, s.CacheReadInputTokens,
-		s.TokenUsageByModel,
+		s.TokenUsageByModel, s.MCPServers,
 		s.ParentSessionID, s.RelationshipType,
 		s.FilePath, s.FileSize, s.FileMtime, s.FileHash)
 	if err != nil {
@@ -711,7 +713,7 @@ func (db *DB) FindPruneCandidates(
 			&s.MessageCount, &s.UserMessageCount,
 			&s.InputTokens, &s.OutputTokens,
 			&s.CacheCreationInputTokens, &s.CacheReadInputTokens,
-			&s.TokenUsageByModel,
+			&s.TokenUsageByModel, &s.MCPServers,
 			&s.ParentSessionID, &s.RelationshipType,
 			&s.FilePath, &s.FileSize, &s.CreatedAt,
 		)

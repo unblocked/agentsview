@@ -963,12 +963,43 @@ func (e *Engine) writeSessionFull(pw pendingWrite) {
 	}
 }
 
+// extractMCPServers collects distinct MCP server names from
+// tool calls. MCP tools follow the naming convention
+// "mcp__<server>__<tool>".
+func extractMCPServers(msgs []parser.ParsedMessage) []string {
+	seen := make(map[string]struct{})
+	for _, m := range msgs {
+		for _, tc := range m.ToolCalls {
+			if strings.HasPrefix(tc.ToolName, "mcp__") {
+				parts := strings.SplitN(tc.ToolName, "__", 3)
+				if len(parts) >= 2 && parts[1] != "" {
+					seen[parts[1]] = struct{}{}
+				}
+			}
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	servers := make([]string, 0, len(seen))
+	for s := range seen {
+		servers = append(servers, s)
+	}
+	return servers
+}
+
 // toDBSession converts a pendingWrite to a db.Session.
 func toDBSession(pw pendingWrite) db.Session {
 	var tokensByModelJSON db.RawJSON
 	if len(pw.sess.TokensByModel) > 0 {
 		if b, err := json.Marshal(pw.sess.TokensByModel); err == nil {
 			tokensByModelJSON = db.RawJSON(b)
+		}
+	}
+	var mcpServersJSON db.RawJSON
+	if servers := extractMCPServers(pw.msgs); len(servers) > 0 {
+		if b, err := json.Marshal(servers); err == nil {
+			mcpServersJSON = db.RawJSON(b)
 		}
 	}
 	s := db.Session{
@@ -983,6 +1014,7 @@ func toDBSession(pw pendingWrite) db.Session {
 		CacheCreationInputTokens: pw.sess.CacheCreationInputTokens,
 		CacheReadInputTokens:     pw.sess.CacheReadInputTokens,
 		TokenUsageByModel:        tokensByModelJSON,
+		MCPServers:               mcpServersJSON,
 		ParentSessionID:          strPtr(pw.sess.ParentSessionID),
 		RelationshipType:         string(pw.sess.RelationshipType),
 		FilePath:                 strPtr(pw.sess.File.Path),
@@ -1284,6 +1316,7 @@ func convertToolResults(
 		results[i] = db.ToolResult{
 			ToolUseID:     tr.ToolUseID,
 			ContentLength: tr.ContentLength,
+			Content:       tr.Content,
 		}
 	}
 	return results
@@ -1326,6 +1359,7 @@ func pairToolResults(msgs []db.Message) {
 		for _, tr := range m.ToolResults {
 			if tc, ok := idx[tr.ToolUseID]; ok {
 				tc.ResultContentLength = tr.ContentLength
+				tc.ResultContent = tr.Content
 			}
 		}
 	}

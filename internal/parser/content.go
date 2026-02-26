@@ -62,9 +62,11 @@ func ExtractTextContent(
 			if tuid != "" {
 				rc := block.Get("content")
 				cl := toolResultContentLength(rc)
+				ct := toolResultContentText(rc)
 				toolResults = append(toolResults, ParsedToolResult{
 					ToolUseID:     tuid,
 					ContentLength: cl,
+					Content:       ct,
 				})
 			}
 		}
@@ -88,6 +90,24 @@ func toolResultContentLength(content gjson.Result) int {
 		return total
 	}
 	return 0
+}
+
+// toolResultContentText extracts the text content of a tool_result block.
+func toolResultContentText(content gjson.Result) string {
+	if content.Type == gjson.String {
+		return content.Str
+	}
+	if content.IsArray() {
+		var parts []string
+		content.ForEach(func(_, block gjson.Result) bool {
+			if text := block.Get("text").Str; text != "" {
+				parts = append(parts, text)
+			}
+			return true
+		})
+		return strings.Join(parts, "\n")
+	}
+	return ""
 }
 
 var todoIcons = map[string]string{
