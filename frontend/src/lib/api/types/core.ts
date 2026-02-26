@@ -21,6 +21,7 @@ export interface Session {
   cache_creation_input_tokens: number;
   cache_read_input_tokens: number;
   token_usage_by_model?: Record<string, ModelTokenUsage> | null;
+  mcp_servers?: string[] | null;
   parent_session_id?: string;
   relationship_type?: string;
   file_path?: string;

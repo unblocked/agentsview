@@ -40,6 +40,10 @@
     formatRelativeTime(session.ended_at ?? session.started_at),
   );
 
+  let hasUnblocked = $derived(
+    session.mcp_servers?.includes("unblocked") ?? false,
+  );
+
   let totalTokens = $derived(
     session.input_tokens +
     session.output_tokens +
@@ -55,6 +59,7 @@
 <button
   class="session-item"
   class:active={isActive}
+  class:has-unblocked={hasUnblocked}
   data-session-id={session.id}
   onclick={() => sessions.selectSession(session.id)}
 >
@@ -66,7 +71,12 @@
     <span class="agent-label">{session.agent}</span>
   </div>
   <div class="session-info">
-    <div class="session-name">{displayName}</div>
+    <div class="session-name-row">
+      <span class="session-name">{displayName}</span>
+      {#if hasUnblocked}
+        <span class="unblocked-badge">UNBLOCKED</span>
+      {/if}
+    </div>
     <div class="session-meta">
       <span class="session-project">{session.project}</span>
       <span class="session-time">{timeStr}</span>
@@ -91,7 +101,7 @@
     padding: 0 14px;
     text-align: left;
     border-left: 2px solid transparent;
-    transition: background 0.1s;
+    transition: background 0.1s, border-color 0.1s;
   }
 
   .session-item:hover {
@@ -101,6 +111,20 @@
   .session-item.active {
     background: var(--bg-surface-hover);
     border-left-color: var(--accent-blue);
+  }
+
+  .session-item.has-unblocked {
+    border-left-color: var(--accent-purple);
+    background: color-mix(in srgb, var(--accent-purple) 4%, transparent);
+  }
+
+  .session-item.has-unblocked:hover {
+    background: color-mix(in srgb, var(--accent-purple) 8%, transparent);
+  }
+
+  .session-item.has-unblocked.active {
+    border-left-color: var(--accent-purple);
+    background: color-mix(in srgb, var(--accent-purple) 10%, transparent);
   }
 
   .agent-indicator {
@@ -155,6 +179,12 @@
     flex: 1;
   }
 
+  .session-name-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   .session-name {
     font-size: 12px;
     font-weight: 450;
@@ -164,6 +194,19 @@
     text-overflow: ellipsis;
     line-height: 1.3;
     letter-spacing: -0.005em;
+    min-width: 0;
+  }
+
+  .unblocked-badge {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: white;
+    background: var(--accent-purple);
+    padding: 1px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    line-height: 1.4;
   }
 
   .session-meta {
