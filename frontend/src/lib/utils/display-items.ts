@@ -14,7 +14,15 @@ export interface ToolGroupItem {
   timestamp: string;
 }
 
-export type DisplayItem = MessageItem | ToolGroupItem;
+export interface SessionBoundaryItem {
+  kind: "session-boundary";
+  ordinals: number[];
+}
+
+export type DisplayItem =
+  | MessageItem
+  | ToolGroupItem
+  | SessionBoundaryItem;
 
 /**
  * Groups consecutive tool-only assistant messages into
@@ -26,21 +34,39 @@ export function buildDisplayItems(
 ): DisplayItem[] {
   const items: DisplayItem[] = [];
   let toolAcc: Message[] = [];
+  let lastSessionId: string | undefined;
+
+  function flushTools() {
+    const [firstTool] = toolAcc;
+    if (firstTool) {
+      items.push({
+        kind: "tool-group",
+        messages: toolAcc,
+        ordinals: toolAcc.map((m) => m.ordinal),
+        timestamp: firstTool.timestamp,
+      });
+      toolAcc = [];
+    }
+  }
 
   for (const msg of messages) {
+    // Insert session boundary when session_id changes
+    if (
+      lastSessionId !== undefined &&
+      msg.session_id !== lastSessionId
+    ) {
+      flushTools();
+      items.push({
+        kind: "session-boundary",
+        ordinals: [msg.ordinal],
+      });
+    }
+    lastSessionId = msg.session_id;
+
     if (isToolOnly(msg)) {
       toolAcc.push(msg);
     } else {
-      const [firstTool] = toolAcc;
-      if (firstTool) {
-        items.push({
-          kind: "tool-group",
-          messages: toolAcc,
-          ordinals: toolAcc.map((m) => m.ordinal),
-          timestamp: firstTool.timestamp,
-        });
-        toolAcc = [];
-      }
+      flushTools();
       items.push({
         kind: "message",
         message: msg,
@@ -49,15 +75,7 @@ export function buildDisplayItems(
     }
   }
 
-  const [lastFirstTool] = toolAcc;
-  if (lastFirstTool) {
-    items.push({
-      kind: "tool-group",
-      messages: toolAcc,
-      ordinals: toolAcc.map((m) => m.ordinal),
-      timestamp: lastFirstTool.timestamp,
-    });
-  }
+  flushTools();
 
   return items;
 }

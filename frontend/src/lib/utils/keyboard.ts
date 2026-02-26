@@ -67,6 +67,7 @@ export function registerShortcuts(
       "[": () => sessions.navigateSession(-1),
       o: () => ui.toggleSort(),
       t: () => ui.toggleThinking(),
+      s: () => ui.toggleSystem(),
       r: () => sync.triggerSync(() => sessions.load()),
       e: () => {
         if (sessions.activeSessionId) {

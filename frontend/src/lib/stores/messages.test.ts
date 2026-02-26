@@ -39,6 +39,10 @@ function makeSession(
     ended_at: null,
     message_count: messageCount,
     user_message_count: messageCount,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
     created_at: new Date(0).toISOString(),
   };
 }

@@ -17,29 +17,13 @@
   let scrollRaf: number | null = $state(null);
   let lastScrollRequest = 0;
 
-  const SYSTEM_MSG_PREFIXES = [
-    "This session is being continued",
-    "[Request interrupted",
-    "<task-notification>",
-    "<command-message>",
-    "<command-name>",
-    "<local-command-",
-    "Stop hook feedback:",
-  ];
-
-  function isSystemMessage(m: Message): boolean {
-    if (m.role !== "user") return false;
-    const trimmed = m.content.trim();
-    return SYSTEM_MSG_PREFIXES.some(
-      (p) => trimmed.startsWith(p),
-    );
-  }
-
   let filteredMessages: Message[] = $derived.by(() => {
     let msgs = messages.messages;
 
-    // Filter system-injected user messages
-    msgs = msgs.filter((m) => !isSystemMessage(m));
+    // Filter system messages by role when toggle is off
+    if (!ui.showSystem) {
+      msgs = msgs.filter((m) => m.role !== "system");
+    }
 
     // Filter thinking-only messages
     if (!ui.showThinking) {
@@ -79,6 +63,9 @@
       getItemKey: (index: number) => {
         const item = itemAt(index);
         if (!item) return `${sid}-${index}`;
+        if (item.kind === "session-boundary") {
+          return `${sid}-sb-${item.ordinals[0]}`;
+        }
         if (item.kind === "tool-group") {
           return `${sid}-tg-${item.ordinals[0]}`;
         }
@@ -265,7 +252,13 @@
               ui.selectOrdinal(item.ordinals[0]!);
             }}
           >
-            {#if item.kind === "tool-group"}
+            {#if item.kind === "session-boundary"}
+              <div class="session-boundary">
+                <span class="session-boundary-line"></span>
+                <span class="session-boundary-label">Session continued</span>
+                <span class="session-boundary-line"></span>
+              </div>
+            {:else if item.kind === "tool-group"}
               <ToolCallGroup
                 messages={item.messages}
                 timestamp={item.timestamp}
@@ -298,6 +291,27 @@
     outline: 2px solid var(--accent-blue);
     outline-offset: -2px;
     border-radius: var(--radius-md, 6px);
+  }
+
+  .session-boundary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+  }
+
+  .session-boundary-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border-muted);
+  }
+
+  .session-boundary-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    white-space: nowrap;
+    letter-spacing: 0.02em;
   }
 
   .empty-state {

@@ -56,8 +56,16 @@
         ui.pendingScrollSession = null;
       }
       if (id) {
-        messages.loadSession(id);
-        sync.watchSession(id, () => messages.reload());
+        const chain = sessions.activeSessionChain;
+        if (chain && chain.length > 1) {
+          messages.loadChain(chain);
+          sync.watchSession(chain[chain.length - 1]!, () =>
+            messages.reload(),
+          );
+        } else {
+          messages.loadSession(id);
+          sync.watchSession(id, () => messages.reload());
+        }
       } else {
         messages.clear();
         sync.unwatchSession();

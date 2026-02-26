@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS stats (
 
 INSERT OR IGNORE INTO stats (key, value) VALUES ('session_count', 0);
 INSERT OR IGNORE INTO stats (key, value) VALUES ('message_count', 0);
+INSERT OR IGNORE INTO stats (key, value) VALUES ('schema_version', 3);
 
 -- Triggers for stats maintenance
 CREATE TRIGGER IF NOT EXISTS sessions_insert_stats AFTER INSERT ON sessions BEGIN
