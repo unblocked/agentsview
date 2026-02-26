@@ -16,6 +16,11 @@ export interface Session {
   ended_at: string | null;
   message_count: number;
   user_message_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  token_usage_by_model?: Record<string, ModelTokenUsage> | null;
   parent_session_id?: string;
   relationship_type?: string;
   file_path?: string;
@@ -35,6 +40,14 @@ export interface SessionPage {
 export interface ProjectInfo {
   name: string;
   session_count: number;
+}
+
+/** Per-model token usage breakdown */
+export interface ModelTokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
 }
 
 /** Matches Go ToolCall struct in internal/db/messages.go */

@@ -25,12 +25,12 @@ func runClaudeParserTest(t *testing.T, fileName, content string) (ParsedSession,
 func TestParseClaudeSession_Basic(t *testing.T) {
 	content := loadFixture(t, "claude/valid_session.jsonl")
 	sess, msgs := runClaudeParserTest(t, "test.jsonl", content)
-	
+
 	assertMessageCount(t, len(msgs), 4)
 	assertMessageCount(t, sess.MessageCount, 4)
 	assertSessionMeta(t, &sess, "test", "my_app", AgentClaude)
 	assert.Equal(t, "Fix the login bug", sess.FirstMessage)
-	
+
 	assertMessage(t, msgs[0], RoleUser, "")
 	assertMessage(t, msgs[1], RoleAssistant, "")
 	assert.True(t, msgs[1].HasToolUse)
@@ -195,6 +195,69 @@ func TestParseClaudeSession_ParentSessionID(t *testing.T) {
 		)
 		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
 		assert.Empty(t, sess.ParentSessionID)
+	})
+}
+
+func TestParseClaudeSession_TokenUsage(t *testing.T) {
+	t.Run("sums token usage from assistant messages", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON("hello", tsZero),
+			testjsonl.ClaudeAssistantWithUsageJSON(
+				[]map[string]string{{"type": "text", "text": "hi"}},
+				tsZeroS1, "msg-1",
+				100, 50, 10, 200,
+			),
+			testjsonl.ClaudeUserJSON("another question", tsZeroS2),
+			testjsonl.ClaudeAssistantWithUsageJSON(
+				[]map[string]string{{"type": "text", "text": "answer"}},
+				tsEarly, "msg-2",
+				150, 75, 20, 300,
+			),
+		)
+		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
+		assert.Equal(t, int64(250), sess.InputTokens)
+		assert.Equal(t, int64(125), sess.OutputTokens)
+		assert.Equal(t, int64(30), sess.CacheCreationInputTokens)
+		assert.Equal(t, int64(500), sess.CacheReadInputTokens)
+	})
+
+	t.Run("deduplicates streaming lines by messageId", func(t *testing.T) {
+		// Simulate streaming: first line has partial usage,
+		// second line has final usage for the same message ID.
+		content := testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON("hello", tsZero),
+			testjsonl.ClaudeAssistantWithUsageJSON(
+				[]map[string]string{{"type": "text", "text": "partial"}},
+				tsZeroS1, "msg-1",
+				50, 0, 5, 100,
+			),
+			testjsonl.ClaudeAssistantWithUsageJSON(
+				[]map[string]string{{"type": "text", "text": "complete"}},
+				tsZeroS2, "msg-1",
+				100, 50, 10, 200,
+			),
+		)
+		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
+		// Should use only the last entry for msg-1.
+		assert.Equal(t, int64(100), sess.InputTokens)
+		assert.Equal(t, int64(50), sess.OutputTokens)
+		assert.Equal(t, int64(10), sess.CacheCreationInputTokens)
+		assert.Equal(t, int64(200), sess.CacheReadInputTokens)
+	})
+
+	t.Run("zero tokens when no usage data", func(t *testing.T) {
+		content := testjsonl.JoinJSONL(
+			testjsonl.ClaudeUserJSON("hello", tsZero),
+			testjsonl.ClaudeAssistantJSON(
+				[]map[string]string{{"type": "text", "text": "hi"}},
+				tsZeroS1,
+			),
+		)
+		sess, _ := runClaudeParserTest(t, "test.jsonl", content)
+		assert.Equal(t, int64(0), sess.InputTokens)
+		assert.Equal(t, int64(0), sess.OutputTokens)
+		assert.Equal(t, int64(0), sess.CacheCreationInputTokens)
+		assert.Equal(t, int64(0), sess.CacheReadInputTokens)
 	})
 }
 

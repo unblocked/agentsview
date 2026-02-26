@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"maps"
@@ -964,19 +965,30 @@ func (e *Engine) writeSessionFull(pw pendingWrite) {
 
 // toDBSession converts a pendingWrite to a db.Session.
 func toDBSession(pw pendingWrite) db.Session {
+	var tokensByModelJSON db.RawJSON
+	if len(pw.sess.TokensByModel) > 0 {
+		if b, err := json.Marshal(pw.sess.TokensByModel); err == nil {
+			tokensByModelJSON = db.RawJSON(b)
+		}
+	}
 	s := db.Session{
-		ID:               pw.sess.ID,
-		Project:          pw.sess.Project,
-		Machine:          pw.sess.Machine,
-		Agent:            string(pw.sess.Agent),
-		MessageCount:     pw.sess.MessageCount,
-		UserMessageCount: pw.sess.UserMessageCount,
-		ParentSessionID:  strPtr(pw.sess.ParentSessionID),
-		RelationshipType: string(pw.sess.RelationshipType),
-		FilePath:         strPtr(pw.sess.File.Path),
-		FileSize:         int64Ptr(pw.sess.File.Size),
-		FileMtime:        int64Ptr(pw.sess.File.Mtime),
-		FileHash:         strPtr(pw.sess.File.Hash),
+		ID:                       pw.sess.ID,
+		Project:                  pw.sess.Project,
+		Machine:                  pw.sess.Machine,
+		Agent:                    string(pw.sess.Agent),
+		MessageCount:             pw.sess.MessageCount,
+		UserMessageCount:         pw.sess.UserMessageCount,
+		InputTokens:              pw.sess.InputTokens,
+		OutputTokens:             pw.sess.OutputTokens,
+		CacheCreationInputTokens: pw.sess.CacheCreationInputTokens,
+		CacheReadInputTokens:     pw.sess.CacheReadInputTokens,
+		TokenUsageByModel:        tokensByModelJSON,
+		ParentSessionID:          strPtr(pw.sess.ParentSessionID),
+		RelationshipType:         string(pw.sess.RelationshipType),
+		FilePath:                 strPtr(pw.sess.File.Path),
+		FileSize:                 int64Ptr(pw.sess.File.Size),
+		FileMtime:                int64Ptr(pw.sess.File.Mtime),
+		FileHash:                 strPtr(pw.sess.File.Hash),
 	}
 	if pw.sess.FirstMessage != "" {
 		s.FirstMessage = &pw.sess.FirstMessage

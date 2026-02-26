@@ -187,7 +187,7 @@ func parseLinear(
 	subagentMap map[string]string,
 	globalStart, globalEnd time.Time,
 ) ([]ParseResult, error) {
-	messages, startedAt, endedAt := extractMessages(entries)
+	messages, startedAt, endedAt, tokens := extractMessages(entries)
 	startedAt = earlierTime(globalStart, startedAt)
 	endedAt = laterTime(globalEnd, endedAt)
 	annotateSubagentSessions(messages, subagentMap)
@@ -206,17 +206,22 @@ func parseLinear(
 	}
 
 	sess := ParsedSession{
-		ID:               sessionID,
-		Project:          project,
-		Machine:          machine,
-		Agent:            AgentClaude,
-		ParentSessionID:  parentSessionID,
-		FirstMessage:     firstMsg,
-		StartedAt:        startedAt,
-		EndedAt:          endedAt,
-		MessageCount:     len(messages),
-		UserMessageCount: userCount,
-		File:             fileInfo,
+		ID:                       sessionID,
+		Project:                  project,
+		Machine:                  machine,
+		Agent:                    AgentClaude,
+		ParentSessionID:          parentSessionID,
+		FirstMessage:             firstMsg,
+		StartedAt:                startedAt,
+		EndedAt:                  endedAt,
+		MessageCount:             len(messages),
+		UserMessageCount:         userCount,
+		InputTokens:              tokens.InputTokens,
+		OutputTokens:             tokens.OutputTokens,
+		CacheCreationInputTokens: tokens.CacheCreationInputTokens,
+		CacheReadInputTokens:     tokens.CacheReadInputTokens,
+		TokensByModel:            tokens.ByModel,
+		File:                     fileInfo,
 	}
 
 	return []ParseResult{{Session: sess, Messages: messages}}, nil
@@ -345,7 +350,7 @@ func parseDAG(
 			branchEntries[j] = entries[idx]
 		}
 
-		messages, startedAt, endedAt := extractMessages(branchEntries)
+		messages, startedAt, endedAt, tokens := extractMessages(branchEntries)
 		// Main session uses global bounds to capture timestamps
 		// from non-message events (e.g. queue-operation).
 		if i == 0 {
@@ -380,18 +385,23 @@ func parseDAG(
 		}
 
 		sess := ParsedSession{
-			ID:               sid,
-			Project:          project,
-			Machine:          machine,
-			Agent:            AgentClaude,
-			ParentSessionID:  pSID,
-			RelationshipType: relType,
-			FirstMessage:     firstMsg,
-			StartedAt:        startedAt,
-			EndedAt:          endedAt,
-			MessageCount:     len(messages),
-			UserMessageCount: userCount,
-			File:             fileInfo,
+			ID:                       sid,
+			Project:                  project,
+			Machine:                  machine,
+			Agent:                    AgentClaude,
+			ParentSessionID:          pSID,
+			RelationshipType:         relType,
+			FirstMessage:             firstMsg,
+			StartedAt:                startedAt,
+			EndedAt:                  endedAt,
+			MessageCount:             len(messages),
+			UserMessageCount:         userCount,
+			InputTokens:              tokens.InputTokens,
+			OutputTokens:             tokens.OutputTokens,
+			CacheCreationInputTokens: tokens.CacheCreationInputTokens,
+			CacheReadInputTokens:     tokens.CacheReadInputTokens,
+			TokensByModel:            tokens.ByModel,
+			File:                     fileInfo,
 		}
 
 		results = append(results, ParseResult{
@@ -426,18 +436,39 @@ func countUserTurns(
 	return count
 }
 
+// tokenUsage holds accumulated token counts from assistant messages.
+type tokenUsage struct {
+	InputTokens              int64
+	OutputTokens             int64
+	CacheCreationInputTokens int64
+	CacheReadInputTokens     int64
+	ByModel                  map[string]ModelTokenUsage
+}
+
 // extractMessages converts dagEntries into ParsedMessages, applying
 // the same filtering and content extraction as the original linear
-// parser.
+// parser. Also returns accumulated token usage from assistant messages.
 func extractMessages(entries []dagEntry) (
-	[]ParsedMessage, time.Time, time.Time,
+	[]ParsedMessage, time.Time, time.Time, tokenUsage,
 ) {
 	var (
 		messages  []ParsedMessage
 		startedAt time.Time
 		endedAt   time.Time
 		ordinal   int
+		tokens    tokenUsage
 	)
+
+	// Track the last usage seen per messageId to avoid
+	// double-counting from streaming duplicate lines.
+	type usageEntry struct {
+		model         string
+		input         int64
+		output        int64
+		cacheCreation int64
+		cacheRead     int64
+	}
+	lastUsage := make(map[string]usageEntry)
 
 	for _, e := range entries {
 		if !e.timestamp.IsZero() {
@@ -445,6 +476,35 @@ func extractMessages(entries []dagEntry) (
 				startedAt = e.timestamp
 			}
 			endedAt = e.timestamp
+		}
+
+		// Accumulate token usage from assistant entries.
+		// The JSONL contains multiple streaming lines per message;
+		// we keep only the last entry per messageId.
+		if e.entryType == "assistant" {
+			usage := gjson.Get(e.line, "message.usage")
+			if usage.Exists() {
+				msgID := gjson.Get(e.line, "message.id").Str
+				if msgID == "" {
+					msgID = e.uuid
+				}
+				ue := usageEntry{
+					model:         gjson.Get(e.line, "message.model").Str,
+					input:         usage.Get("input_tokens").Int(),
+					output:        usage.Get("output_tokens").Int(),
+					cacheCreation: usage.Get("cache_creation_input_tokens").Int(),
+					cacheRead:     usage.Get("cache_read_input_tokens").Int(),
+				}
+				if msgID != "" {
+					lastUsage[msgID] = ue
+				} else {
+					// No message ID; accumulate directly.
+					tokens.InputTokens += ue.input
+					tokens.OutputTokens += ue.output
+					tokens.CacheCreationInputTokens += ue.cacheCreation
+					tokens.CacheReadInputTokens += ue.cacheRead
+				}
+			}
 		}
 
 		// Tier 1: skip system-injected user entries.
@@ -481,7 +541,27 @@ func extractMessages(entries []dagEntry) (
 		ordinal++
 	}
 
-	return messages, startedAt, endedAt
+	// Sum the final usage per unique message, both as
+	// session-level aggregates and per-model breakdowns.
+	byModel := make(map[string]ModelTokenUsage)
+	for _, ue := range lastUsage {
+		tokens.InputTokens += ue.input
+		tokens.OutputTokens += ue.output
+		tokens.CacheCreationInputTokens += ue.cacheCreation
+		tokens.CacheReadInputTokens += ue.cacheRead
+
+		if ue.model != "" {
+			m := byModel[ue.model]
+			m.InputTokens += ue.input
+			m.OutputTokens += ue.output
+			m.CacheCreationInputTokens += ue.cacheCreation
+			m.CacheReadInputTokens += ue.cacheRead
+			byModel[ue.model] = m
+		}
+	}
+	tokens.ByModel = byModel
+
+	return messages, startedAt, endedAt, tokens
 }
 
 // annotateSubagentSessions sets SubagentSessionID on Task tool calls

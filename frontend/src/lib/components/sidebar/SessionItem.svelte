@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Session } from "../../api/types.js";
   import { sessions, isRecentlyActive } from "../../stores/sessions.svelte.js";
-  import { formatRelativeTime, truncate } from "../../utils/format.js";
+  import { formatRelativeTime, truncate, formatTokenCount } from "../../utils/format.js";
   import { agentColor as getAgentColor } from "../../utils/agents.js";
 
   interface Props {
@@ -39,6 +39,17 @@
   let timeStr = $derived(
     formatRelativeTime(session.ended_at ?? session.started_at),
   );
+
+  let totalTokens = $derived(
+    session.input_tokens +
+    session.output_tokens +
+    session.cache_creation_input_tokens +
+    session.cache_read_input_tokens,
+  );
+
+  let tokenStr = $derived(
+    totalTokens > 0 ? formatTokenCount(totalTokens) + " tok" : "",
+  );
 </script>
 
 <button
@@ -60,6 +71,9 @@
       <span class="session-project">{session.project}</span>
       <span class="session-time">{timeStr}</span>
       <span class="session-count">{session.user_message_count}</span>
+      {#if tokenStr}
+        <span class="session-tokens">{tokenStr}</span>
+      {/if}
       {#if continuationCount > 1}
         <span class="continuation-badge">x{continuationCount}</span>
       {/if}
@@ -180,6 +194,15 @@
   }
 
   .session-count::before {
+    content: "\2022 ";
+  }
+
+  .session-tokens {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .session-tokens::before {
     content: "\2022 ";
   }
 
