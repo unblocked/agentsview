@@ -66,7 +66,7 @@ func TestContentTypeWrapper(t *testing.T) {
 				triggerStatus:  tt.triggerStatus,
 			}
 
-			req := httptest.NewRequest("GET", "/", nil)
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			tt.handler(wrapper, req)
 
 			assertRecorderStatus(t, w, tt.wantStatus)
@@ -75,21 +75,19 @@ func TestContentTypeWrapper(t *testing.T) {
 			defer resp.Body.Close()
 
 			gotCT := resp.Header.Get("Content-Type")
-			if tt.wantContentType == "" {
-				// Wrapper must NOT force application/json on non-trigger statuses.
-				// Content-Type may be sniffed by httptest, but must not be
-				// the wrapper's configured type.
-				if gotCT == "application/json" {
-					t.Errorf(
-						"Content-Type = %q; wrapper should not set it for non-trigger status",
-						gotCT,
-					)
+			if tt.wantContentType != "" {
+				if gotCT != tt.wantContentType {
+					t.Errorf("Content-Type = %q, want %q", gotCT, tt.wantContentType)
 				}
-			} else if gotCT != tt.wantContentType {
-				t.Errorf("Content-Type = %q, want %q", gotCT, tt.wantContentType)
+			} else if gotCT == "application/json" {
+				// Wrapper shouldn't improperly force its Content-Type
+				t.Errorf("Content-Type = %q, unexpectedly forced by wrapper", gotCT)
 			}
 
-			body, _ := io.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("failed to read body: %v", err)
+			}
 			if string(body) != tt.wantBody {
 				t.Errorf("body = %q, want %q", string(body), tt.wantBody)
 			}
@@ -97,129 +95,50 @@ func TestContentTypeWrapper(t *testing.T) {
 	}
 }
 
-// TestWithTimeoutTriggersOnSlowHandler verifies that withTimeout produces a
-// 503 JSON timeout response when the handler exceeds the configured duration.
-func TestWithTimeoutTriggersOnSlowHandler(t *testing.T) {
+// TestMiddlewareTimeout verifies that API routes are wrapped with timeout
+// middleware (which produces a 503 JSON timeout response when the handler
+// exceeds the configured duration) and that export/SPA routes are NOT wrapped.
+func TestMiddlewareTimeout(t *testing.T) {
 	t.Parallel()
 
-	srv := testServer(t, 10*time.Millisecond)
+	srv := testServer(
+		t, 10*time.Millisecond,
+		withHandlerDelay(100*time.Millisecond),
+	)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
 
-	// Handler that blocks well past the timeout.
-	slow := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case <-r.Context().Done():
-		case <-time.After(5 * time.Second):
-		}
-		// If we reach here after context cancel, TimeoutHandler
-		// already wrote the 503.
-	})
-
-	handler := srv.withTimeout(slow)
-	ts := httptest.NewServer(handler)
-	defer ts.Close()
-
-	resp, err := ts.Client().Get(ts.URL + "/test")
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
+	tests := []struct {
+		name        string
+		path        string
+		wantTimeout bool
+		wantStatus  int // Only checked if wantTimeout is false
+	}{
+		{"Wrapped_ListSessions", "/api/v1/sessions", true, 0},
+		{"Wrapped_GetStats", "/api/v1/stats", true, 0},
+		{"Unwrapped_ExportSession", "/api/v1/sessions/invalid-id/export", false, http.StatusNotFound},
+		{"Unwrapped_SPA", "/", false, http.StatusOK},
 	}
-	defer resp.Body.Close()
 
-	assertTimeoutResponse(t, resp)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			resp, err := ts.Client().Get(ts.URL + tt.path)
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+			defer resp.Body.Close()
 
-// TestRoutesTimeoutWiring verifies that API routes are wrapped with timeout
-// middleware (positive assertion) and that export/SPA routes are NOT wrapped
-// (negative assertion).
-func TestRoutesTimeoutWiring(t *testing.T) {
-	t.Parallel()
-
-	// Positive: wrapped routes must produce a timeout when
-	// the handler is slow. Inject a 100ms handler delay
-	// with a 10ms timeout so the handler always exceeds
-	// the deadline regardless of platform timer resolution.
-	t.Run("WrappedRoutesTimeout", func(t *testing.T) {
-		t.Parallel()
-		srv := testServerOpts(
-			t, 10*time.Millisecond,
-			withHandlerDelay(100*time.Millisecond),
-		)
-
-		ts := httptest.NewServer(srv.Handler())
-		defer ts.Close()
-
-		wrapped := []struct {
-			name string
-			path string
-		}{
-			{"ListSessions", "/api/v1/sessions"},
-			{"GetStats", "/api/v1/stats"},
-		}
-
-		for _, tt := range wrapped {
-			t.Run(tt.name, func(t *testing.T) {
-				resp, err := ts.Client().Get(ts.URL + tt.path)
-				if err != nil {
-					t.Fatalf("request failed: %v", err)
-				}
-				defer resp.Body.Close()
-
-				if !isTimeoutResponse(t, resp) {
-					t.Errorf(
-						"%s: expected timeout 503, got %d",
-						tt.path, resp.StatusCode,
-					)
-				}
-			})
-		}
-	})
-
-	// Negative: unwrapped routes must NOT produce a timeout
-	// even when handlerDelay is active. The delay only
-	// affects timeout-wrapped handlers, so unwrapped routes
-	// complete instantly. If a route were accidentally
-	// wrapped, the delay would exceed the short timeout
-	// and this test would catch the regression.
-	t.Run("UnwrappedRoutesNoTimeout", func(t *testing.T) {
-		t.Parallel()
-		srv := testServerOpts(
-			t, 10*time.Millisecond,
-			withHandlerDelay(100*time.Millisecond),
-		)
-
-		ts := httptest.NewServer(srv.Handler())
-		defer ts.Close()
-
-		unwrapped := []struct {
-			name       string
-			path       string
-			wantStatus int
-		}{
-			{"ExportSession", "/api/v1/sessions/invalid-id/export",
-				http.StatusNotFound},
-			{"SPA", "/", http.StatusOK},
-		}
-
-		for _, tt := range unwrapped {
-			t.Run(tt.name, func(t *testing.T) {
-				resp, err := ts.Client().Get(ts.URL + tt.path)
-				if err != nil {
-					t.Fatalf("request failed: %v", err)
-				}
-				defer resp.Body.Close()
-
+			if tt.wantTimeout {
+				assertTimeoutResponse(t, resp)
+			} else {
 				if isTimeoutResponse(t, resp) {
-					t.Errorf(
-						"%s: unexpected timeout for unwrapped route",
-						tt.path,
-					)
+					t.Errorf("%s: unexpected timeout for unwrapped route", tt.path)
 				}
 				if resp.StatusCode != tt.wantStatus {
-					t.Errorf(
-						"%s: status = %d, want %d",
-						tt.path, resp.StatusCode, tt.wantStatus,
-					)
+					t.Errorf("%s: status = %d, want %d", tt.path, resp.StatusCode, tt.wantStatus)
 				}
-			})
-		}
-	})
+			}
+		})
+	}
 }

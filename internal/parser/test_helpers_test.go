@@ -99,10 +99,14 @@ func assertLogContains(
 ) {
 	t.Helper()
 	got := buf.String()
+	var missing []string
 	for _, s := range substrs {
 		if !strings.Contains(got, s) {
-			t.Errorf("log missing %q, got: %q", s, got)
+			missing = append(missing, s)
 		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("log missing substrings %q. Full log:\n%s", missing, got)
 	}
 }
 
@@ -111,13 +115,14 @@ func assertLogNotContains(
 ) {
 	t.Helper()
 	got := buf.String()
+	var unexpected []string
 	for _, s := range substrs {
 		if strings.Contains(got, s) {
-			t.Errorf(
-				"log should not contain %q, got: %q",
-				s, got,
-			)
+			unexpected = append(unexpected, s)
 		}
+	}
+	if len(unexpected) > 0 {
+		t.Errorf("log should not contain substrings %q. Full log:\n%s", unexpected, got)
 	}
 }
 
@@ -131,6 +136,29 @@ func assertLogEmpty(t *testing.T, buf *bytes.Buffer) {
 	}
 }
 
+func assertToolCallField(t *testing.T, i int, field, got, want string) {
+	t.Helper()
+	if got != want {
+		t.Errorf("tool_calls[%d].%s = %q, want %q", i, field, got, want)
+	}
+}
+
+func assertToolCall(t *testing.T, i int, got, want ParsedToolCall) {
+	t.Helper()
+	assertToolCallField(t, i, "ToolName", got.ToolName, want.ToolName)
+	assertToolCallField(t, i, "Category", got.Category, want.Category)
+	if want.ToolUseID != "" {
+		assertToolCallField(t, i, "ToolUseID", got.ToolUseID, want.ToolUseID)
+	}
+	if want.InputJSON != "" {
+		assertToolCallField(t, i, "InputJSON", got.InputJSON, want.InputJSON)
+	}
+	if want.SkillName != "" {
+		assertToolCallField(t, i, "SkillName", got.SkillName, want.SkillName)
+	}
+	assertToolCallField(t, i, "SubagentSessionID", got.SubagentSessionID, want.SubagentSessionID)
+}
+
 func assertToolCalls(
 	t *testing.T, got, want []ParsedToolCall,
 ) {
@@ -141,26 +169,7 @@ func assertToolCalls(
 		return
 	}
 	for i := range want {
-		if got[i].ToolName != want[i].ToolName {
-			t.Errorf("tool_calls[%d].ToolName = %q, want %q",
-				i, got[i].ToolName, want[i].ToolName)
-		}
-		if got[i].Category != want[i].Category {
-			t.Errorf("tool_calls[%d].Category = %q, want %q",
-				i, got[i].Category, want[i].Category)
-		}
-		if want[i].ToolUseID != "" && got[i].ToolUseID != want[i].ToolUseID {
-			t.Errorf("tool_calls[%d].ToolUseID = %q, want %q",
-				i, got[i].ToolUseID, want[i].ToolUseID)
-		}
-		if want[i].InputJSON != "" && got[i].InputJSON != want[i].InputJSON {
-			t.Errorf("tool_calls[%d].InputJSON = %q, want %q",
-				i, got[i].InputJSON, want[i].InputJSON)
-		}
-		if want[i].SkillName != "" && got[i].SkillName != want[i].SkillName {
-			t.Errorf("tool_calls[%d].SkillName = %q, want %q",
-				i, got[i].SkillName, want[i].SkillName)
-		}
+		assertToolCall(t, i, got[i], want[i])
 	}
 }
 

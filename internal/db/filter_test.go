@@ -31,64 +31,64 @@ func TestSessionFilterDateFields(t *testing.T) {
 	tests := []struct {
 		name   string
 		filter SessionFilter
-		want   int
+		want   []string
 	}{
 		{
 			name: "ExactDate",
-			filter: filterWith(func(f *SessionFilter) {
-				f.Date = "2024-06-01"
-			}),
-			want: 1,
+			filter: SessionFilter{
+				Date: "2024-06-01",
+			},
+			want: []string{"s1"},
 		},
 		{
 			name: "DateRange",
-			filter: filterWith(func(f *SessionFilter) {
-				f.DateFrom = "2024-06-01"
-				f.DateTo = "2024-06-02"
-			}),
-			want: 2,
+			filter: SessionFilter{
+				DateFrom: "2024-06-01",
+				DateTo:   "2024-06-02",
+			},
+			want: []string{"s1", "s2"},
 		},
 		{
 			name: "DateFrom",
-			filter: filterWith(func(f *SessionFilter) {
-				f.DateFrom = "2024-06-02"
-			}),
-			want: 2,
+			filter: SessionFilter{
+				DateFrom: "2024-06-02",
+			},
+			want: []string{"s2", "s3"},
 		},
 		{
 			name: "DateTo",
-			filter: filterWith(func(f *SessionFilter) {
-				f.DateTo = "2024-06-01"
-			}),
-			want: 1,
+			filter: SessionFilter{
+				DateTo: "2024-06-01",
+			},
+			want: []string{"s1"},
 		},
 		{
 			name: "MinMessages",
-			filter: filterWith(func(f *SessionFilter) {
-				f.MinMessages = 10
-			}),
-			want: 2,
+			filter: SessionFilter{
+				MinMessages: 10,
+			},
+			want: []string{"s2", "s3"},
 		},
 		{
 			name: "MaxMessages",
-			filter: filterWith(func(f *SessionFilter) {
-				f.MaxMessages = 10
-			}),
-			want: 1,
+			filter: SessionFilter{
+				MaxMessages: 10,
+			},
+			want: []string{"s1"},
 		},
 		{
 			name: "CombinedDateAndMessages",
-			filter: filterWith(func(f *SessionFilter) {
-				f.DateFrom = "2024-06-02"
-				f.MinMessages = 20
-			}),
-			want: 1,
+			filter: SessionFilter{
+				DateFrom:    "2024-06-02",
+				MinMessages: 20,
+			},
+			want: []string{"s3"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			requireCount(t, d, tt.filter, tt.want)
+			requireSessions(t, d, tt.filter, tt.want)
 		})
 	}
 }
@@ -120,44 +120,45 @@ func TestSessionFilterActiveSince(t *testing.T) {
 	// (created_at defaults to now in schema, but here we set
 	// started_at to nil; the fallback is created_at).
 	insertSession(t, d, "no-times", "proj", func(s *Session) {
+		s.CreatedAt = "2024-06-04T00:00:00Z"
 		s.MessageCount = 5
 	})
 
-	// no-times has created_at = now (schema default), so it
+	// no-times has created_at = 2024-06-04, so it
 	// matches any past cutoff.
 	tests := []struct {
 		name        string
 		activeSince string
-		want        int
+		want        []string
 	}{
 		{
 			name:        "ExcludesOldEndedAt",
 			activeSince: "2024-06-03T00:00:00Z",
-			want:        3, // old excluded; recent-end, recent-start, no-times match
+			want:        []string{"recent-end", "recent-start", "no-times"}, // old excluded
 		},
 		{
-			name:        "NarrowCutoffOnlyCreatedAtNow",
+			name:        "NarrowCutoffOnlyCreatedAtAfterCutoff",
 			activeSince: "2024-06-03T12:00:00Z",
-			want:        1, // only no-times (created_at=now) survives
+			want:        []string{"no-times"}, // only no-times (created_at=2024-06-04) survives
 		},
 		{
 			name:        "IncludesAll",
 			activeSince: "2024-01-01T00:00:00Z",
-			want:        4,
+			want:        []string{"old", "recent-end", "recent-start", "no-times"},
 		},
 		{
 			name:        "EmptyMeansNoFilter",
 			activeSince: "",
-			want:        4,
+			want:        []string{"old", "recent-end", "recent-start", "no-times"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := filterWith(func(f *SessionFilter) {
-				f.ActiveSince = tt.activeSince
-			})
-			requireCount(t, d, f, tt.want)
+			f := SessionFilter{
+				ActiveSince: tt.activeSince,
+			}
+			requireSessions(t, d, f, tt.want)
 		})
 	}
 }
@@ -181,22 +182,22 @@ func TestSessionFilterMinUserMessages(t *testing.T) {
 	tests := []struct {
 		name            string
 		minUserMessages int
-		want            int
+		want            []string
 	}{
-		{"NoFilter", 0, 3},
-		{"Min1", 1, 3},
-		{"Min2", 2, 2},
-		{"Min5", 5, 1},
-		{"Min10", 10, 1},
-		{"Min11", 11, 0},
+		{"NoFilter", 0, []string{"one-shot", "short", "long"}},
+		{"Min1", 1, []string{"one-shot", "short", "long"}},
+		{"Min2", 2, []string{"short", "long"}},
+		{"Min5", 5, []string{"long"}},
+		{"Min10", 10, []string{"long"}},
+		{"Min11", 11, []string{}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := filterWith(func(f *SessionFilter) {
-				f.MinUserMessages = tt.minUserMessages
-			})
-			requireCount(t, d, f, tt.want)
+			f := SessionFilter{
+				MinUserMessages: tt.minUserMessages,
+			}
+			requireSessions(t, d, f, tt.want)
 		})
 	}
 }
@@ -217,20 +218,20 @@ func TestSessionFilterExcludeProject(t *testing.T) {
 	tests := []struct {
 		name           string
 		excludeProject string
-		want           int
+		want           []string
 	}{
-		{"NoFilter", "", 3},
-		{"ExcludeUnknown", "unknown", 1},
-		{"ExcludeMyProject", "my_project", 2},
-		{"ExcludeNonexistent", "nope", 3},
+		{"NoFilter", "", []string{"known", "unknown1", "unknown2"}},
+		{"ExcludeUnknown", "unknown", []string{"known"}},
+		{"ExcludeMyProject", "my_project", []string{"unknown1", "unknown2"}},
+		{"ExcludeNonexistent", "nope", []string{"known", "unknown1", "unknown2"}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := filterWith(func(f *SessionFilter) {
-				f.ExcludeProject = tt.excludeProject
-			})
-			requireCount(t, d, f, tt.want)
+			f := SessionFilter{
+				ExcludeProject: tt.excludeProject,
+			}
+			requireSessions(t, d, f, tt.want)
 		})
 	}
 }
@@ -256,8 +257,8 @@ func TestListSessionsExcludesRelationshipTypes(t *testing.T) {
 		s.RelationshipType = "fork"
 	})
 
-	f := filterWith(func(f *SessionFilter) {})
-	requireCount(t, d, f, 1)
+	f := SessionFilter{}
+	requireSessions(t, d, f, []string{"normal"})
 }
 
 func TestActiveSinceUsesEndedAtOverStartedAt(t *testing.T) {
@@ -272,15 +273,26 @@ func TestActiveSinceUsesEndedAtOverStartedAt(t *testing.T) {
 		s.MessageCount = 5
 	})
 
-	// date_from filters on started_at — should NOT match.
-	dateFromFilter := filterWith(func(f *SessionFilter) {
-		f.DateFrom = "2024-06-01"
-	})
-	requireCount(t, d, dateFromFilter, 0)
+	tests := []struct {
+		name   string
+		filter SessionFilter
+		want   []string
+	}{
+		{
+			name:   "DateFrom misses due to early StartedAt",
+			filter: SessionFilter{DateFrom: "2024-06-01"},
+			want:   []string{},
+		},
+		{
+			name:   "ActiveSince catches due to later EndedAt",
+			filter: SessionFilter{ActiveSince: "2024-06-01T00:00:00Z"},
+			want:   []string{"s1"},
+		},
+	}
 
-	// active_since filters on ended_at — SHOULD match.
-	activeSinceFilter := filterWith(func(f *SessionFilter) {
-		f.ActiveSince = "2024-06-01T00:00:00Z"
-	})
-	requireCount(t, d, activeSinceFilter, 1)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requireSessions(t, d, tt.filter, tt.want)
+		})
+	}
 }

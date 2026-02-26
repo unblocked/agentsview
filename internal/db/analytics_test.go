@@ -7,53 +7,66 @@ import (
 	"time"
 )
 
-func seedAnalyticsData(t *testing.T, d *DB) {
+type seedStats struct {
+	TotalSessions          int
+	TotalMessages          int
+	TotalUserMessages      int
+	TotalAssistantMessages int
+	ActiveProjects         int
+	ActiveDays             int
+}
+
+func seedAnalyticsData(t *testing.T, d *DB) seedStats {
 	t.Helper()
 
-	// Project A: 3 sessions across 2 days, mixed agents
-	insertSession(t, d, "a1", "project-alpha", func(s *Session) {
-		s.StartedAt = Ptr("2024-06-01T09:00:00Z")
-		s.EndedAt = Ptr(tsMidYear)
-		s.MessageCount = 10
-		s.Agent = "claude"
-	})
-	insertSession(t, d, "a2", "project-alpha", func(s *Session) {
-		s.StartedAt = Ptr("2024-06-01T14:00:00Z")
-		s.EndedAt = Ptr("2024-06-01T15:00:00Z")
-		s.MessageCount = 20
-		s.Agent = "codex"
-	})
-	insertSession(t, d, "a3", "project-alpha", func(s *Session) {
-		s.StartedAt = Ptr("2024-06-03T09:00:00Z")
-		s.EndedAt = Ptr("2024-06-03T10:00:00Z")
-		s.MessageCount = 5
-		s.Agent = "claude"
-	})
+	type sessionData struct {
+		id      string
+		project string
+		start   string
+		end     string
+		msgs    int
+		agent   string
+	}
 
-	// Project B: 2 sessions on 1 day
-	insertSession(t, d, "b1", "project-beta", func(s *Session) {
-		s.StartedAt = Ptr("2024-06-02T10:00:00Z")
-		s.EndedAt = Ptr("2024-06-02T11:00:00Z")
-		s.MessageCount = 30
-		s.Agent = "claude"
-	})
-	insertSession(t, d, "b2", "project-beta", func(s *Session) {
-		s.StartedAt = Ptr("2024-06-02T15:00:00Z")
-		s.EndedAt = Ptr("2024-06-02T16:00:00Z")
-		s.MessageCount = 15
-		s.Agent = "claude"
-	})
+	sessions := []sessionData{
+		// Project A: 3 sessions across 2 days, mixed agents
+		{"a1", "project-alpha", "2024-06-01T09:00:00Z", tsMidYear, 10, "claude"},
+		{"a2", "project-alpha", "2024-06-01T14:00:00Z", "2024-06-01T15:00:00Z", 20, "codex"},
+		{"a3", "project-alpha", "2024-06-03T09:00:00Z", "2024-06-03T10:00:00Z", 5, "claude"},
+		// Project B: 2 sessions on 1 day
+		{"b1", "project-beta", "2024-06-02T10:00:00Z", "2024-06-02T11:00:00Z", 30, "claude"},
+		{"b2", "project-beta", "2024-06-02T15:00:00Z", "2024-06-02T16:00:00Z", 15, "claude"},
+	}
 
-	// Insert messages for each session
-	for _, sess := range []struct {
-		id    string
-		count int
-	}{
-		{"a1", 10}, {"a2", 20}, {"a3", 5},
-		{"b1", 30}, {"b2", 15},
-	} {
-		msgs := make([]Message, sess.count)
-		for i := range sess.count {
+	stats := seedStats{}
+	projects := make(map[string]bool)
+	days := make(map[string]bool)
+
+	for _, sess := range sessions {
+		stats.TotalSessions++
+		stats.TotalMessages += sess.msgs
+		for i := 0; i < sess.msgs; i++ {
+			if i%2 == 1 {
+				stats.TotalAssistantMessages++
+			} else {
+				stats.TotalUserMessages++
+			}
+		}
+
+		projects[sess.project] = true
+		if len(sess.start) >= 10 {
+			days[sess.start[:10]] = true
+		}
+
+		insertSession(t, d, sess.id, sess.project, func(s *Session) {
+			s.StartedAt = Ptr(sess.start)
+			s.EndedAt = Ptr(sess.end)
+			s.MessageCount = sess.msgs
+			s.Agent = sess.agent
+		})
+
+		msgs := make([]Message, sess.msgs)
+		for i := 0; i < sess.msgs; i++ {
 			role := "user"
 			if i%2 == 1 {
 				role = "assistant"
@@ -69,6 +82,11 @@ func seedAnalyticsData(t *testing.T, d *DB) {
 		}
 		insertMessages(t, d, msgs...)
 	}
+
+	stats.ActiveProjects = len(projects)
+	stats.ActiveDays = len(days)
+
+	return stats
 }
 
 func baseFilter() AnalyticsFilter {
@@ -145,21 +163,21 @@ func TestGetAnalyticsSummary(t *testing.T) {
 		}
 	})
 
-	seedAnalyticsData(t, d)
+	stats := seedAnalyticsData(t, d)
 
 	t.Run("FullRange", func(t *testing.T) {
 		s := mustSummary(t, d, ctx, baseFilter())
-		if s.TotalSessions != 5 {
-			t.Errorf("TotalSessions = %d, want 5", s.TotalSessions)
+		if s.TotalSessions != stats.TotalSessions {
+			t.Errorf("TotalSessions = %d, want %d", s.TotalSessions, stats.TotalSessions)
 		}
-		if s.TotalMessages != 80 {
-			t.Errorf("TotalMessages = %d, want 80", s.TotalMessages)
+		if s.TotalMessages != stats.TotalMessages {
+			t.Errorf("TotalMessages = %d, want %d", s.TotalMessages, stats.TotalMessages)
 		}
-		if s.ActiveProjects != 2 {
-			t.Errorf("ActiveProjects = %d, want 2", s.ActiveProjects)
+		if s.ActiveProjects != stats.ActiveProjects {
+			t.Errorf("ActiveProjects = %d, want %d", s.ActiveProjects, stats.ActiveProjects)
 		}
-		if s.ActiveDays != 3 {
-			t.Errorf("ActiveDays = %d, want 3", s.ActiveDays)
+		if s.ActiveDays != stats.ActiveDays {
+			t.Errorf("ActiveDays = %d, want %d", s.ActiveDays, stats.ActiveDays)
 		}
 		if s.MostActive != "project-beta" {
 			t.Errorf("MostActive = %q, want project-beta", s.MostActive)
@@ -226,15 +244,15 @@ func TestGetAnalyticsSummary(t *testing.T) {
 func TestGetAnalyticsActivity(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
-	seedAnalyticsData(t, d)
+	stats := seedAnalyticsData(t, d)
 
 	t.Run("DayGranularity", func(t *testing.T) {
 		resp := mustActivity(t, d, ctx, baseFilter(), "day")
 		if resp.Granularity != "day" {
 			t.Errorf("Granularity = %q, want day", resp.Granularity)
 		}
-		if len(resp.Series) != 3 {
-			t.Fatalf("len(Series) = %d, want 3", len(resp.Series))
+		if len(resp.Series) != stats.ActiveDays {
+			t.Fatalf("len(Series) = %d, want %d", len(resp.Series), stats.ActiveDays)
 		}
 		// Day 1: 2 sessions (a1, a2)
 		if resp.Series[0].Sessions != 2 {
@@ -257,6 +275,9 @@ func TestGetAnalyticsActivity(t *testing.T) {
 		if len(resp.Series) != 1 {
 			t.Errorf("len(Series) = %d, want 1", len(resp.Series))
 		}
+		if resp.Series[0].Sessions != stats.TotalSessions {
+			t.Errorf("month sessions = %d, want %d", resp.Series[0].Sessions, stats.TotalSessions)
+		}
 	})
 
 	t.Run("HasRoleCounts", func(t *testing.T) {
@@ -267,11 +288,14 @@ func TestGetAnalyticsActivity(t *testing.T) {
 			totalUser += e.UserMessages
 			totalAsst += e.AssistantMessages
 		}
-		if totalUser == 0 {
-			t.Error("expected non-zero user messages")
+		if totalUser+totalAsst != stats.TotalMessages {
+			t.Errorf("total messages = %d, want %d", totalUser+totalAsst, stats.TotalMessages)
 		}
-		if totalAsst == 0 {
-			t.Error("expected non-zero assistant messages")
+		if totalUser != stats.TotalUserMessages {
+			t.Errorf("total user messages = %d, want %d", totalUser, stats.TotalUserMessages)
+		}
+		if totalAsst != stats.TotalAssistantMessages {
+			t.Errorf("total assistant messages = %d, want %d", totalAsst, stats.TotalAssistantMessages)
 		}
 	})
 }
@@ -279,7 +303,7 @@ func TestGetAnalyticsActivity(t *testing.T) {
 func TestGetAnalyticsHeatmap(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
-	seedAnalyticsData(t, d)
+	stats := seedAnalyticsData(t, d)
 
 	t.Run("MessageMetric", func(t *testing.T) {
 		resp := mustHeatmap(t, d, ctx, baseFilter(), "messages")
@@ -287,9 +311,18 @@ func TestGetAnalyticsHeatmap(t *testing.T) {
 			t.Errorf("Metric = %q, want messages", resp.Metric)
 		}
 		// 3 days in range: Jun 1, 2, 3
-		if len(resp.Entries) != 3 {
-			t.Fatalf("len(Entries) = %d, want 3", len(resp.Entries))
+		if len(resp.Entries) != stats.ActiveDays {
+			t.Fatalf("len(Entries) = %d, want %d", len(resp.Entries), stats.ActiveDays)
 		}
+
+		totalMessages := 0
+		for _, e := range resp.Entries {
+			totalMessages += e.Value
+		}
+		if totalMessages != stats.TotalMessages {
+			t.Errorf("total messages across heatmap = %d, want %d", totalMessages, stats.TotalMessages)
+		}
+
 		// Jun 1: 10+20=30, Jun 2: 30+15=45, Jun 3: 5
 		if resp.Entries[0].Value != 30 {
 			t.Errorf("Jun1 value = %d, want 30", resp.Entries[0].Value)
@@ -307,6 +340,15 @@ func TestGetAnalyticsHeatmap(t *testing.T) {
 		if resp.Metric != "sessions" {
 			t.Errorf("Metric = %q, want sessions", resp.Metric)
 		}
+
+		totalSessions := 0
+		for _, e := range resp.Entries {
+			totalSessions += e.Value
+		}
+		if totalSessions != stats.TotalSessions {
+			t.Errorf("total sessions across heatmap = %d, want %d", totalSessions, stats.TotalSessions)
+		}
+
 		// Jun 1: 2, Jun 2: 2, Jun 3: 1
 		if resp.Entries[0].Value != 2 {
 			t.Errorf("Jun1 sessions = %d, want 2",
@@ -346,13 +388,22 @@ func TestGetAnalyticsHeatmap(t *testing.T) {
 func TestGetAnalyticsProjects(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
-	seedAnalyticsData(t, d)
+	stats := seedAnalyticsData(t, d)
 
 	t.Run("FullRange", func(t *testing.T) {
 		resp := mustProjects(t, d, ctx, baseFilter())
-		if len(resp.Projects) != 2 {
-			t.Fatalf("len(Projects) = %d, want 2", len(resp.Projects))
+		if len(resp.Projects) != stats.ActiveProjects {
+			t.Fatalf("len(Projects) = %d, want %d", len(resp.Projects), stats.ActiveProjects)
 		}
+
+		totalMessages := 0
+		for _, p := range resp.Projects {
+			totalMessages += p.Messages
+		}
+		if totalMessages != stats.TotalMessages {
+			t.Errorf("total messages across projects = %d, want %d", totalMessages, stats.TotalMessages)
+		}
+
 		// Sorted by message count desc: beta (45) > alpha (35)
 		if resp.Projects[0].Name != "project-beta" {
 			t.Errorf("first project = %q, want project-beta",
@@ -957,7 +1008,69 @@ func bucketMap(
 	return m
 }
 
-func TestGetAnalyticsVelocity(t *testing.T) {
+func assertEq[T comparable](t *testing.T, name string, got, want T) {
+	t.Helper()
+	if got != want {
+		t.Errorf("%s = %v, want %v", name, got, want)
+	}
+}
+
+type testClock struct {
+	curr time.Time
+}
+
+func newTestClock(start string) *testClock {
+	t, _ := time.Parse(time.RFC3339, start)
+	return &testClock{curr: t}
+}
+
+func (c *testClock) Now() string {
+	return c.curr.Format(time.RFC3339)
+}
+
+func (c *testClock) Next(d time.Duration) string {
+	c.curr = c.curr.Add(d)
+	return c.Now()
+}
+
+func insertConversation(t *testing.T, d *DB, id, proj, agent, start string, delays []time.Duration) {
+	t.Helper()
+	clock := newTestClock(start)
+
+	insertSession(t, d, id, proj, func(s *Session) {
+		s.StartedAt = Ptr(start)
+		s.MessageCount = len(delays)
+		s.Agent = agent
+		if len(delays) > 0 {
+			endClock := newTestClock(start)
+			for _, delay := range delays {
+				endClock.Next(delay)
+			}
+			s.EndedAt = Ptr(endClock.Now())
+		}
+	})
+
+	var msgs []Message
+	for i, delay := range delays {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		msgs = append(msgs, Message{
+			SessionID:     id,
+			Ordinal:       i,
+			Role:          role,
+			Content:       fmt.Sprintf("msg %d", i),
+			ContentLength: 5,
+			Timestamp:     clock.Next(delay),
+		})
+	}
+	if len(msgs) > 0 {
+		insertMessages(t, d, msgs...)
+	}
+}
+
+func TestGetAnalyticsVelocity_Metrics(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
 
@@ -966,65 +1079,20 @@ func TestGetAnalyticsVelocity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		if len(resp.ByAgent) != 0 {
-			t.Errorf(
-				"len(ByAgent) = %d, want 0",
-				len(resp.ByAgent),
-			)
-		}
+		assertEq(t, "len(ByAgent)", len(resp.ByAgent), 0)
 	})
 
 	// Session with messages at precise timestamps (10s apart)
-	insertSession(t, d, "v1", "proj", func(s *Session) {
-		s.StartedAt = Ptr("2024-06-01T09:00:00Z")
-		s.EndedAt = Ptr("2024-06-01T09:01:00Z")
-		s.MessageCount = 6
-		s.Agent = "claude"
+	insertConversation(t, d, "v1", "proj", "claude", "2024-06-01T09:00:00Z", []time.Duration{
+		0, 10 * time.Second, 10 * time.Second, 10 * time.Second, 10 * time.Second, 10 * time.Second,
 	})
-	insertMessages(t, d,
-		Message{
-			SessionID: "v1", Ordinal: 0, Role: "user",
-			Content: "hi", ContentLength: 2,
-			Timestamp: "2024-06-01T09:00:00Z",
-		},
-		Message{
-			SessionID: "v1", Ordinal: 1, Role: "assistant",
-			Content: "hello there", ContentLength: 11,
-			Timestamp: "2024-06-01T09:00:10Z",
-		},
-		Message{
-			SessionID: "v1", Ordinal: 2, Role: "user",
-			Content: "do X", ContentLength: 4,
-			Timestamp: "2024-06-01T09:00:20Z",
-		},
-		Message{
-			SessionID: "v1", Ordinal: 3, Role: "assistant",
-			Content: "done X ok", ContentLength: 9,
-			Timestamp: "2024-06-01T09:00:30Z",
-		},
-		Message{
-			SessionID: "v1", Ordinal: 4, Role: "user",
-			Content: "do Y", ContentLength: 4,
-			Timestamp: "2024-06-01T09:00:40Z",
-		},
-		Message{
-			SessionID: "v1", Ordinal: 5, Role: "assistant",
-			Content: "done Y ok", ContentLength: 9,
-			Timestamp: "2024-06-01T09:00:50Z",
-		},
-	)
 
 	t.Run("TurnCycle", func(t *testing.T) {
 		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		// Turn cycles: user→asst at 0→10 (10s), 20→30 (10s),
-		// 40→50 (10s). All 10s.
-		if resp.Overall.TurnCycleSec.P50 != 10.0 {
-			t.Errorf("TurnCycle P50 = %f, want 10.0",
-				resp.Overall.TurnCycleSec.P50)
-		}
+		assertEq(t, "TurnCycle P50", resp.Overall.TurnCycleSec.P50, 10.0)
 	})
 
 	t.Run("FirstResponse", func(t *testing.T) {
@@ -1032,11 +1100,7 @@ func TestGetAnalyticsVelocity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		// First user at 09:00:00, first asst at 09:00:10 = 10s
-		if resp.Overall.FirstResponseSec.P50 != 10.0 {
-			t.Errorf("FirstResponse P50 = %f, want 10.0",
-				resp.Overall.FirstResponseSec.P50)
-		}
+		assertEq(t, "FirstResponse P50", resp.Overall.FirstResponseSec.P50, 10.0)
 	})
 
 	t.Run("Throughput", func(t *testing.T) {
@@ -1046,10 +1110,8 @@ func TestGetAnalyticsVelocity(t *testing.T) {
 		}
 		// Active time: 5 gaps of 10s = 50s ≈ 0.833 min
 		// 6 msgs / 0.833 = ~7.2 msgs/min
-		if resp.Overall.MsgsPerActiveMin < 7.0 ||
-			resp.Overall.MsgsPerActiveMin > 7.5 {
-			t.Errorf("MsgsPerActiveMin = %f, want ~7.2",
-				resp.Overall.MsgsPerActiveMin)
+		if resp.Overall.MsgsPerActiveMin < 7.0 || resp.Overall.MsgsPerActiveMin > 7.5 {
+			t.Errorf("MsgsPerActiveMin = %f, want ~7.2", resp.Overall.MsgsPerActiveMin)
 		}
 	})
 
@@ -1058,20 +1120,9 @@ func TestGetAnalyticsVelocity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		if len(resp.ByAgent) != 1 {
-			t.Fatalf(
-				"len(ByAgent) = %d, want 1",
-				len(resp.ByAgent),
-			)
-		}
-		if resp.ByAgent[0].Label != "claude" {
-			t.Errorf("ByAgent[0].Label = %q, want claude",
-				resp.ByAgent[0].Label)
-		}
-		if resp.ByAgent[0].Sessions != 1 {
-			t.Errorf("ByAgent[0].Sessions = %d, want 1",
-				resp.ByAgent[0].Sessions)
-		}
+		assertEq(t, "len(ByAgent)", len(resp.ByAgent), 1)
+		assertEq(t, "ByAgent[0].Label", resp.ByAgent[0].Label, "claude")
+		assertEq(t, "ByAgent[0].Sessions", resp.ByAgent[0].Sessions, 1)
 	})
 
 	t.Run("ByComplexity", func(t *testing.T) {
@@ -1079,373 +1130,188 @@ func TestGetAnalyticsVelocity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		// 6 messages → "1-15" bucket
-		if len(resp.ByComplexity) != 1 {
-			t.Fatalf("len(ByComplexity) = %d, want 1",
-				len(resp.ByComplexity))
-		}
-		if resp.ByComplexity[0].Label != "1-15" {
-			t.Errorf(
-				"ByComplexity[0].Label = %q, want 1-15",
-				resp.ByComplexity[0].Label,
-			)
-		}
+		assertEq(t, "len(ByComplexity)", len(resp.ByComplexity), 1)
+		assertEq(t, "ByComplexity[0].Label", resp.ByComplexity[0].Label, "1-15")
 	})
+}
+
+func TestGetAnalyticsVelocity_EdgeCases(t *testing.T) {
+	ctx := context.Background()
 
 	t.Run("LargeCycleExcluded", func(t *testing.T) {
-		d2 := testDB(t)
-		insertSession(t, d2, "v2", "proj", func(s *Session) {
-			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
-			s.MessageCount = 2
-			s.Agent = "claude"
+		d := testDB(t)
+		insertConversation(t, d, "v2", "proj", "claude", "2024-06-01T09:00:00Z", []time.Duration{
+			0, 45 * time.Minute,
 		})
-		// 45min gap → exceeds 1800s threshold
-		insertMessages(t, d2,
-			Message{
-				SessionID: "v2", Ordinal: 0, Role: "user",
-				Content: "q", ContentLength: 1,
-				Timestamp: "2024-06-01T09:00:00Z",
-			},
-			Message{
-				SessionID: "v2", Ordinal: 1,
-				Role:    "assistant",
-				Content: "a", ContentLength: 1,
-				Timestamp: "2024-06-01T09:45:00Z",
-			},
-		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		if resp.Overall.TurnCycleSec.P50 != 0 {
-			t.Errorf(
-				"TurnCycle P50 = %f, want 0 (excluded)",
-				resp.Overall.TurnCycleSec.P50,
-			)
-		}
+		assertEq(t, "TurnCycle P50", resp.Overall.TurnCycleSec.P50, 0.0)
 	})
 
 	t.Run("EmptyTimestampsSkipped", func(t *testing.T) {
-		d2 := testDB(t)
-		insertSession(t, d2, "v3", "proj", func(s *Session) {
+		d := testDB(t)
+		insertSession(t, d, "v3", "proj", func(s *Session) {
 			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
 			s.MessageCount = 2
 			s.Agent = "claude"
 		})
-		insertMessages(t, d2,
-			Message{
-				SessionID: "v3", Ordinal: 0, Role: "user",
-				Content: "q", ContentLength: 1,
-				Timestamp: "",
-			},
-			Message{
-				SessionID: "v3", Ordinal: 1,
-				Role:    "assistant",
-				Content: "a", ContentLength: 1,
-				Timestamp: "",
-			},
+		insertMessages(t, d,
+			Message{SessionID: "v3", Ordinal: 0, Role: "user", Content: "q", ContentLength: 1, Timestamp: ""},
+			Message{SessionID: "v3", Ordinal: 1, Role: "assistant", Content: "a", ContentLength: 1, Timestamp: ""},
 		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		if resp.Overall.TurnCycleSec.P50 != 0 {
-			t.Errorf(
-				"TurnCycle P50 = %f, want 0 (empty ts)",
-				resp.Overall.TurnCycleSec.P50,
-			)
-		}
+		assertEq(t, "TurnCycle P50", resp.Overall.TurnCycleSec.P50, 0.0)
 	})
 
 	t.Run("AssistantBeforeUser", func(t *testing.T) {
-		d2 := testDB(t)
-		insertSession(t, d2, "v4", "proj", func(s *Session) {
+		d := testDB(t)
+		insertSession(t, d, "v4", "proj", func(s *Session) {
 			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
 			s.MessageCount = 3
 			s.Agent = "claude"
 		})
-		// Assistant at ordinal 0, user at ordinal 1,
-		// assistant at ordinal 2
-		insertMessages(t, d2,
-			Message{
-				SessionID: "v4", Ordinal: 0,
-				Role:    "assistant",
-				Content: "system greeting", ContentLength: 15,
-				Timestamp: "2024-06-01T09:00:00Z",
-			},
-			Message{
-				SessionID: "v4", Ordinal: 1, Role: "user",
-				Content: "hi", ContentLength: 2,
-				Timestamp: "2024-06-01T09:00:10Z",
-			},
-			Message{
-				SessionID: "v4", Ordinal: 2,
-				Role:    "assistant",
-				Content: "hello", ContentLength: 5,
-				Timestamp: "2024-06-01T09:00:20Z",
-			},
+		insertMessages(t, d,
+			Message{SessionID: "v4", Ordinal: 0, Role: "assistant", Content: "system greeting", ContentLength: 15, Timestamp: "2024-06-01T09:00:00Z"},
+			Message{SessionID: "v4", Ordinal: 1, Role: "user", Content: "hi", ContentLength: 2, Timestamp: "2024-06-01T09:00:10Z"},
+			Message{SessionID: "v4", Ordinal: 2, Role: "assistant", Content: "hello", ContentLength: 5, Timestamp: "2024-06-01T09:00:20Z"},
 		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		// First response: user@09:00:10 → asst@09:00:20 = 10s
-		// (should not use the assistant at ordinal 0)
-		if resp.Overall.FirstResponseSec.P50 != 10.0 {
-			t.Errorf(
-				"FirstResponse P50 = %f, want 10.0",
-				resp.Overall.FirstResponseSec.P50,
-			)
-		}
+		assertEq(t, "FirstResponse P50", resp.Overall.FirstResponseSec.P50, 10.0)
 	})
 
 	t.Run("OrdinalVsTimestampSkew", func(t *testing.T) {
-		d2 := testDB(t)
-		insertSession(t, d2, "v5", "proj", func(s *Session) {
+		d := testDB(t)
+		insertSession(t, d, "v5", "proj", func(s *Session) {
 			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
 			s.MessageCount = 3
 			s.Agent = "claude"
 		})
-		// Ordinal 1 is user, ordinal 2 is assistant, but
-		// assistant has an earlier timestamp than the user
-		// (clock skew). First-response should still pair
-		// ordinal 1 → ordinal 2 since we scan by ordinal.
-		insertMessages(t, d2,
-			Message{
-				SessionID: "v5", Ordinal: 0, Role: "user",
-				Content: "setup", ContentLength: 5,
-				Timestamp: "2024-06-01T09:00:00Z",
-			},
-			Message{
-				SessionID: "v5", Ordinal: 1, Role: "user",
-				Content: "real question", ContentLength: 13,
-				Timestamp: "2024-06-01T09:00:30Z",
-			},
-			Message{
-				SessionID: "v5", Ordinal: 2,
-				Role:    "assistant",
-				Content: "answer", ContentLength: 6,
-				Timestamp: "2024-06-01T09:00:20Z",
-			},
+		insertMessages(t, d,
+			Message{SessionID: "v5", Ordinal: 0, Role: "user", Content: "setup", ContentLength: 5, Timestamp: "2024-06-01T09:00:00Z"},
+			Message{SessionID: "v5", Ordinal: 1, Role: "user", Content: "real question", ContentLength: 13, Timestamp: "2024-06-01T09:00:30Z"},
+			Message{SessionID: "v5", Ordinal: 2, Role: "assistant", Content: "answer", ContentLength: 6, Timestamp: "2024-06-01T09:00:20Z"},
 		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		// First user is ordinal 0. First assistant after it
-		// (by ordinal) is ordinal 2. Delta = |20s - 0s| = 20s.
-		// Even though ordinal 2 has an earlier timestamp than
-		// ordinal 1, we pair by ordinal order.
-		if resp.Overall.FirstResponseSec.P50 != 20.0 {
-			t.Errorf(
-				"FirstResponse P50 = %f, want 20.0",
-				resp.Overall.FirstResponseSec.P50,
-			)
-		}
+		assertEq(t, "FirstResponse P50", resp.Overall.FirstResponseSec.P50, 20.0)
 	})
 
+	t.Run("NegativeDeltaClampsToZero", func(t *testing.T) {
+		d := testDB(t)
+		insertSession(t, d, "v6", "proj", func(s *Session) {
+			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
+			s.MessageCount = 2
+			s.Agent = "claude"
+		})
+		insertMessages(t, d,
+			Message{SessionID: "v6", Ordinal: 0, Role: "user", Content: "hello", ContentLength: 5, Timestamp: "2024-06-01T09:00:30Z"},
+			Message{SessionID: "v6", Ordinal: 1, Role: "assistant", Content: "hi", ContentLength: 2, Timestamp: "2024-06-01T09:00:10Z"},
+		)
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
+		if err != nil {
+			t.Fatalf("GetAnalyticsVelocity: %v", err)
+		}
+		assertEq(t, "FirstResponse P50", resp.Overall.FirstResponseSec.P50, 0.0)
+	})
+}
+
+func TestGetAnalyticsVelocity_ToolUsage(t *testing.T) {
+	ctx := context.Background()
+
 	t.Run("ToolCallsPerActiveMin", func(t *testing.T) {
-		d2 := testDB(t)
-		insertSession(t, d2, "vt1", "proj", func(s *Session) {
+		d := testDB(t)
+		insertSession(t, d, "vt1", "proj", func(s *Session) {
 			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
 			s.MessageCount = 4
 			s.Agent = "claude"
 		})
-		insertMessages(t, d2,
+		insertMessages(t, d,
+			Message{SessionID: "vt1", Ordinal: 0, Role: "user", Content: "hi", ContentLength: 2, Timestamp: "2024-06-01T09:00:00Z"},
+			Message{SessionID: "vt1", Ordinal: 1, Role: "assistant", Content: "hello", ContentLength: 5, Timestamp: "2024-06-01T09:00:10Z"},
+			Message{SessionID: "vt1", Ordinal: 2, Role: "user", Content: "do X", ContentLength: 4, Timestamp: "2024-06-01T09:00:20Z"},
 			Message{
-				SessionID: "vt1", Ordinal: 0, Role: "user",
-				Content: "hi", ContentLength: 2,
-				Timestamp: "2024-06-01T09:00:00Z",
-			},
-			Message{
-				SessionID: "vt1", Ordinal: 1,
-				Role:    "assistant",
-				Content: "hello", ContentLength: 5,
-				Timestamp: "2024-06-01T09:00:10Z",
-			},
-			Message{
-				SessionID: "vt1", Ordinal: 2, Role: "user",
-				Content: "do X", ContentLength: 4,
-				Timestamp: "2024-06-01T09:00:20Z",
-			},
-			Message{
-				SessionID: "vt1", Ordinal: 3,
-				Role:    "assistant",
-				Content: "done", ContentLength: 4,
-				Timestamp:  "2024-06-01T09:00:30Z",
-				HasToolUse: true,
+				SessionID: "vt1", Ordinal: 3, Role: "assistant", Content: "done", ContentLength: 4,
+				Timestamp: "2024-06-01T09:00:30Z", HasToolUse: true,
 				ToolCalls: []ToolCall{
-					{SessionID: "vt1", ToolName: "Read",
-						Category: "Read"},
-					{SessionID: "vt1", ToolName: "Bash",
-						Category: "Bash"},
-					{SessionID: "vt1", ToolName: "Edit",
-						Category: "Edit"},
+					{SessionID: "vt1", ToolName: "Read", Category: "Read"},
+					{SessionID: "vt1", ToolName: "Bash", Category: "Bash"},
+					{SessionID: "vt1", ToolName: "Edit", Category: "Edit"},
 				},
 			},
 		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		// 3 tool calls, active time = 3 gaps of 10s = 30s = 0.5 min
-		// 3 / 0.5 = 6.0
-		if resp.Overall.ToolCallsPerActiveMin != 6.0 {
-			t.Errorf("ToolCallsPerActiveMin = %f, want 6.0",
-				resp.Overall.ToolCallsPerActiveMin)
-		}
+		assertEq(t, "ToolCallsPerActiveMin", resp.Overall.ToolCallsPerActiveMin, 6.0)
 	})
 
 	t.Run("ToolCallsByAgentBreakdown", func(t *testing.T) {
-		d2 := testDB(t)
-		// Two sessions, different agents, each with tool calls
-		insertSession(t, d2, "vta1", "proj", func(s *Session) {
+		d := testDB(t)
+		insertSession(t, d, "vta1", "proj", func(s *Session) {
 			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
 			s.MessageCount = 2
 			s.Agent = "claude"
 		})
-		insertMessages(t, d2,
+		insertMessages(t, d,
+			Message{SessionID: "vta1", Ordinal: 0, Role: "user", Content: "q", ContentLength: 1, Timestamp: "2024-06-01T09:00:00Z"},
 			Message{
-				SessionID: "vta1", Ordinal: 0, Role: "user",
-				Content: "q", ContentLength: 1,
-				Timestamp: "2024-06-01T09:00:00Z",
-			},
-			Message{
-				SessionID: "vta1", Ordinal: 1,
-				Role:    "assistant",
-				Content: "a", ContentLength: 1,
-				Timestamp:  "2024-06-01T09:00:30Z",
-				HasToolUse: true,
-				ToolCalls: []ToolCall{
-					{SessionID: "vta1", ToolName: "Read",
-						Category: "Read"},
-				},
+				SessionID: "vta1", Ordinal: 1, Role: "assistant", Content: "a", ContentLength: 1,
+				Timestamp: "2024-06-01T09:00:30Z", HasToolUse: true,
+				ToolCalls: []ToolCall{{SessionID: "vta1", ToolName: "Read", Category: "Read"}},
 			},
 		)
-		insertSession(t, d2, "vta2", "proj", func(s *Session) {
+		insertSession(t, d, "vta2", "proj", func(s *Session) {
 			s.StartedAt = Ptr("2024-06-01T10:00:00Z")
 			s.MessageCount = 2
 			s.Agent = "codex"
 		})
-		insertMessages(t, d2,
+		insertMessages(t, d,
+			Message{SessionID: "vta2", Ordinal: 0, Role: "user", Content: "q", ContentLength: 1, Timestamp: "2024-06-01T10:00:00Z"},
 			Message{
-				SessionID: "vta2", Ordinal: 0, Role: "user",
-				Content: "q", ContentLength: 1,
-				Timestamp: "2024-06-01T10:00:00Z",
-			},
-			Message{
-				SessionID: "vta2", Ordinal: 1,
-				Role:    "assistant",
-				Content: "a", ContentLength: 1,
-				Timestamp:  "2024-06-01T10:00:30Z",
-				HasToolUse: true,
+				SessionID: "vta2", Ordinal: 1, Role: "assistant", Content: "a", ContentLength: 1,
+				Timestamp: "2024-06-01T10:00:30Z", HasToolUse: true,
 				ToolCalls: []ToolCall{
-					{SessionID: "vta2", ToolName: "Bash",
-						Category: "Bash"},
-					{SessionID: "vta2", ToolName: "Edit",
-						Category: "Edit"},
+					{SessionID: "vta2", ToolName: "Bash", Category: "Bash"},
+					{SessionID: "vta2", ToolName: "Edit", Category: "Edit"},
 				},
 			},
 		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		// Both agents should appear in ByAgent
 		if len(resp.ByAgent) < 2 {
-			t.Fatalf("ByAgent has %d entries, want >= 2",
-				len(resp.ByAgent))
+			t.Fatalf("ByAgent has %d entries, want >= 2", len(resp.ByAgent))
 		}
 		agentMap := make(map[string]VelocityBreakdown)
 		for _, b := range resp.ByAgent {
 			agentMap[b.Label] = b
 		}
-		claude, ok := agentMap["claude"]
-		if !ok {
-			t.Fatal("missing claude in ByAgent")
-		}
-		if claude.Overview.ToolCallsPerActiveMin != 2.0 {
-			t.Errorf(
-				"claude ToolCallsPerActiveMin = %f, want 2.0",
-				claude.Overview.ToolCallsPerActiveMin,
-			)
-		}
-		codex, ok := agentMap["codex"]
-		if !ok {
-			t.Fatal("missing codex in ByAgent")
-		}
-		if codex.Overview.ToolCallsPerActiveMin != 4.0 {
-			t.Errorf(
-				"codex ToolCallsPerActiveMin = %f, want 4.0",
-				codex.Overview.ToolCallsPerActiveMin,
-			)
-		}
+		assertEq(t, "claude ToolCallsPerActiveMin", agentMap["claude"].Overview.ToolCallsPerActiveMin, 2.0)
+		assertEq(t, "codex ToolCallsPerActiveMin", agentMap["codex"].Overview.ToolCallsPerActiveMin, 4.0)
 	})
 
 	t.Run("ToolCallsPerActiveMinZero", func(t *testing.T) {
-		d2 := testDB(t)
-		insertSession(t, d2, "vt2", "proj", func(s *Session) {
-			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
-			s.MessageCount = 2
-			s.Agent = "claude"
+		d := testDB(t)
+		insertConversation(t, d, "vt2", "proj", "claude", "2024-06-01T09:00:00Z", []time.Duration{
+			0, 10 * time.Second,
 		})
-		insertMessages(t, d2,
-			Message{
-				SessionID: "vt2", Ordinal: 0, Role: "user",
-				Content: "q", ContentLength: 1,
-				Timestamp: "2024-06-01T09:00:00Z",
-			},
-			Message{
-				SessionID: "vt2", Ordinal: 1,
-				Role:    "assistant",
-				Content: "a", ContentLength: 1,
-				Timestamp: "2024-06-01T09:00:10Z",
-			},
-		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
+		resp, err := d.GetAnalyticsVelocity(ctx, baseFilter())
 		if err != nil {
 			t.Fatalf("GetAnalyticsVelocity: %v", err)
 		}
-		if resp.Overall.ToolCallsPerActiveMin != 0 {
-			t.Errorf("ToolCallsPerActiveMin = %f, want 0",
-				resp.Overall.ToolCallsPerActiveMin)
-		}
-	})
-
-	t.Run("NegativeDeltaClampsToZero", func(t *testing.T) {
-		d2 := testDB(t)
-		insertSession(t, d2, "v6", "proj", func(s *Session) {
-			s.StartedAt = Ptr("2024-06-01T09:00:00Z")
-			s.MessageCount = 2
-			s.Agent = "claude"
-		})
-		// First user has a later timestamp than the first
-		// assistant (extreme clock skew). Delta would be
-		// negative; we clamp to 0 rather than dropping.
-		insertMessages(t, d2,
-			Message{
-				SessionID: "v6", Ordinal: 0, Role: "user",
-				Content: "hello", ContentLength: 5,
-				Timestamp: "2024-06-01T09:00:30Z",
-			},
-			Message{
-				SessionID: "v6", Ordinal: 1,
-				Role:    "assistant",
-				Content: "hi", ContentLength: 2,
-				Timestamp: "2024-06-01T09:00:10Z",
-			},
-		)
-		resp, err := d2.GetAnalyticsVelocity(ctx, baseFilter())
-		if err != nil {
-			t.Fatalf("GetAnalyticsVelocity: %v", err)
-		}
-		// Negative delta clamped to 0
-		if resp.Overall.FirstResponseSec.P50 != 0.0 {
-			t.Errorf(
-				"FirstResponse P50 = %f, want 0.0",
-				resp.Overall.FirstResponseSec.P50,
-			)
-		}
+		assertEq(t, "ToolCallsPerActiveMin", resp.Overall.ToolCallsPerActiveMin, 0.0)
 	})
 }
 
@@ -1776,7 +1642,7 @@ func TestGetAnalyticsTopSessions(t *testing.T) {
 		}
 	})
 
-	seedAnalyticsData(t, d)
+	stats := seedAnalyticsData(t, d)
 
 	t.Run("ByMessages", func(t *testing.T) {
 		resp, err := d.GetAnalyticsTopSessions(
@@ -1785,9 +1651,9 @@ func TestGetAnalyticsTopSessions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetAnalyticsTopSessions: %v", err)
 		}
-		if len(resp.Sessions) != 5 {
-			t.Fatalf("len(Sessions) = %d, want 5",
-				len(resp.Sessions))
+		if len(resp.Sessions) != stats.TotalSessions {
+			t.Fatalf("len(Sessions) = %d, want %d",
+				len(resp.Sessions), stats.TotalSessions)
 		}
 		// First should be the session with most messages (b1=30)
 		if resp.Sessions[0].MessageCount != 30 {

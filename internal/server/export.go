@@ -198,7 +198,7 @@ func createGistWithURL(
 		return nil, fmt.Errorf("marshaling gist payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST",
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		apiURL,
 		strings.NewReader(string(payload)))
 	if err != nil {
@@ -217,7 +217,10 @@ func createGistWithURL(
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if err != nil {
+			return nil, fmt.Errorf("github API error: %d: reading body: %w", resp.StatusCode, err)
+		}
 		return nil, fmt.Errorf("github API error: %d: %s",
 			resp.StatusCode, string(body))
 	}
@@ -239,7 +242,7 @@ func validateGithubTokenWithURL(
 	ctx context.Context,
 	apiURL, token string,
 ) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("creating validation request: %w", err)
 	}

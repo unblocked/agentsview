@@ -11,92 +11,86 @@ import (
 	"github.com/wesm/agentsview/internal/server"
 )
 
-func TestListInsights_Empty(t *testing.T) {
-	te := setup(t)
-
-	w := te.get(t, "/api/v1/insights")
-	assertStatus(t, w, http.StatusOK)
-
-	type resp struct {
-		Insights []db.Insight `json:"insights"`
-	}
-	r := decode[resp](t, w)
-	if len(r.Insights) != 0 {
-		t.Fatalf("expected 0 insights, got %d",
-			len(r.Insights))
-	}
+type listInsightsResponse struct {
+	Insights []db.Insight `json:"insights"`
 }
 
-func TestListInsights_WithData(t *testing.T) {
-	te := setup(t)
-
-	te.seedInsight(t, "daily_activity", "2025-01-15",
-		strPtr("my-app"))
-	te.seedInsight(t, "daily_activity", "2025-01-15",
-		strPtr("other-app"))
-	te.seedInsight(t, "agent_analysis", "2025-01-15", nil)
-
-	w := te.get(t, "/api/v1/insights")
-	assertStatus(t, w, http.StatusOK)
-
-	type resp struct {
-		Insights []db.Insight `json:"insights"`
+func TestListInsights(t *testing.T) {
+	tests := []struct {
+		name       string
+		seed       func(t *testing.T, te *testEnv)
+		path       string
+		wantStatus int
+		wantCount  int
+		wantBody   string
+	}{
+		{
+			name:       "Empty",
+			seed:       func(t *testing.T, te *testEnv) {},
+			path:       "/api/v1/insights",
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name: "WithData",
+			seed: func(t *testing.T, te *testEnv) {
+				te.seedInsight(t, "daily_activity", "2025-01-15", strPtr("my-app"))
+				te.seedInsight(t, "daily_activity", "2025-01-15", strPtr("other-app"))
+				te.seedInsight(t, "agent_analysis", "2025-01-15", nil)
+			},
+			path:       "/api/v1/insights",
+			wantStatus: http.StatusOK,
+			wantCount:  3,
+		},
+		{
+			name: "TypeFilter",
+			seed: func(t *testing.T, te *testEnv) {
+				te.seedInsight(t, "daily_activity", "2025-01-15", strPtr("my-app"))
+				te.seedInsight(t, "agent_analysis", "2025-01-15", nil)
+			},
+			path:       "/api/v1/insights?type=daily_activity",
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+		{
+			name: "ReturnsAll",
+			seed: func(t *testing.T, te *testEnv) {
+				te.seedInsight(t, "daily_activity", "2025-01-15", strPtr("my-app"))
+				te.seedInsight(t, "daily_activity", "2025-01-16", strPtr("my-app"))
+			},
+			path:       "/api/v1/insights",
+			wantStatus: http.StatusOK,
+			wantCount:  2,
+		},
+		{
+			name:       "InvalidType",
+			seed:       func(t *testing.T, te *testEnv) {},
+			path:       "/api/v1/insights?type=invalid",
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "invalid type",
+		},
 	}
-	r := decode[resp](t, w)
-	if len(r.Insights) != 3 {
-		t.Fatalf("expected 3 insights, got %d",
-			len(r.Insights))
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			te := setup(t)
+			tt.seed(t, te)
+
+			w := te.get(t, tt.path)
+			assertStatus(t, w, tt.wantStatus)
+
+			if tt.wantBody != "" {
+				assertBodyContains(t, w, tt.wantBody)
+			}
+
+			if tt.wantStatus == http.StatusOK {
+				r := decode[listInsightsResponse](t, w)
+				if len(r.Insights) != tt.wantCount {
+					t.Fatalf("expected %d insights, got %d", tt.wantCount, len(r.Insights))
+				}
+			}
+		})
 	}
-}
-
-func TestListInsights_TypeFilter(t *testing.T) {
-	te := setup(t)
-
-	te.seedInsight(t, "daily_activity", "2025-01-15",
-		strPtr("my-app"))
-	te.seedInsight(t, "agent_analysis", "2025-01-15", nil)
-
-	w := te.get(t,
-		"/api/v1/insights?type=daily_activity")
-	assertStatus(t, w, http.StatusOK)
-
-	type resp struct {
-		Insights []db.Insight `json:"insights"`
-	}
-	r := decode[resp](t, w)
-	if len(r.Insights) != 1 {
-		t.Fatalf("expected 1 insight, got %d",
-			len(r.Insights))
-	}
-}
-
-func TestListInsights_ReturnsAll(t *testing.T) {
-	te := setup(t)
-
-	te.seedInsight(t, "daily_activity", "2025-01-15",
-		strPtr("my-app"))
-	te.seedInsight(t, "daily_activity", "2025-01-16",
-		strPtr("my-app"))
-
-	w := te.get(t, "/api/v1/insights")
-	assertStatus(t, w, http.StatusOK)
-
-	type resp struct {
-		Insights []db.Insight `json:"insights"`
-	}
-	r := decode[resp](t, w)
-	if len(r.Insights) != 2 {
-		t.Fatalf("expected 2 insights, got %d",
-			len(r.Insights))
-	}
-}
-
-func TestListInsights_InvalidType(t *testing.T) {
-	te := setup(t)
-
-	w := te.get(t, "/api/v1/insights?type=invalid")
-	assertStatus(t, w, http.StatusBadRequest)
-	assertBodyContains(t, w, "invalid type")
 }
 
 func TestGetInsight_Found(t *testing.T) {
@@ -117,70 +111,31 @@ func TestGetInsight_Found(t *testing.T) {
 	}
 }
 
-func TestGetInsight_NotFound(t *testing.T) {
-	te := setup(t)
+func TestGenerateInsight_Validation(t *testing.T) {
+	tests := []struct {
+		name     string
+		payload  string
+		wantBody string
+	}{
+		{"InvalidType", `{"type":"bad","date_from":"2025-01-15","date_to":"2025-01-15"}`, ""},
+		{"InvalidDateFrom", `{"type":"daily_activity","date_from":"bad","date_to":"2025-01-15"}`, "date_from"},
+		{"InvalidDateTo", `{"type":"daily_activity","date_from":"2025-01-15","date_to":"bad"}`, "date_to"},
+		{"DateToBeforeDateFrom", `{"type":"daily_activity","date_from":"2025-01-16","date_to":"2025-01-15"}`, "date_to must be"},
+		{"InvalidJSON", `{bad json`, ""},
+		{"InvalidAgent", `{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"gpt"}`, "invalid agent"},
+	}
 
-	w := te.get(t, "/api/v1/insights/99999")
-	assertStatus(t, w, http.StatusNotFound)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			te := setup(t)
+			w := te.post(t, "/api/v1/insights/generate", tt.payload)
 
-func TestGetInsight_InvalidID(t *testing.T) {
-	te := setup(t)
-
-	w := te.get(t, "/api/v1/insights/abc")
-	assertStatus(t, w, http.StatusBadRequest)
-}
-
-func TestGenerateInsight_InvalidType(t *testing.T) {
-	te := setup(t)
-
-	w := te.post(t, "/api/v1/insights/generate",
-		`{"type":"bad","date_from":"2025-01-15","date_to":"2025-01-15"}`)
-	assertStatus(t, w, http.StatusBadRequest)
-}
-
-func TestGenerateInsight_InvalidDateFrom(t *testing.T) {
-	te := setup(t)
-
-	w := te.post(t, "/api/v1/insights/generate",
-		`{"type":"daily_activity","date_from":"bad","date_to":"2025-01-15"}`)
-	assertStatus(t, w, http.StatusBadRequest)
-	assertBodyContains(t, w, "date_from")
-}
-
-func TestGenerateInsight_InvalidDateTo(t *testing.T) {
-	te := setup(t)
-
-	w := te.post(t, "/api/v1/insights/generate",
-		`{"type":"daily_activity","date_from":"2025-01-15","date_to":"bad"}`)
-	assertStatus(t, w, http.StatusBadRequest)
-	assertBodyContains(t, w, "date_to")
-}
-
-func TestGenerateInsight_DateToBeforeDateFrom(t *testing.T) {
-	te := setup(t)
-
-	w := te.post(t, "/api/v1/insights/generate",
-		`{"type":"daily_activity","date_from":"2025-01-16","date_to":"2025-01-15"}`)
-	assertStatus(t, w, http.StatusBadRequest)
-	assertBodyContains(t, w, "date_to must be")
-}
-
-func TestGenerateInsight_InvalidJSON(t *testing.T) {
-	te := setup(t)
-
-	w := te.post(t, "/api/v1/insights/generate",
-		`{bad json`)
-	assertStatus(t, w, http.StatusBadRequest)
-}
-
-func TestGenerateInsight_InvalidAgent(t *testing.T) {
-	te := setup(t)
-
-	w := te.post(t, "/api/v1/insights/generate",
-		`{"type":"daily_activity","date_from":"2025-01-15","date_to":"2025-01-15","agent":"gpt"}`)
-	assertStatus(t, w, http.StatusBadRequest)
-	assertBodyContains(t, w, "invalid agent")
+			assertStatus(t, w, http.StatusBadRequest)
+			if tt.wantBody != "" {
+				assertBodyContains(t, w, tt.wantBody)
+			}
+		})
+	}
 }
 
 func TestGenerateInsight_DefaultAgent(t *testing.T) {
@@ -216,18 +171,31 @@ func TestDeleteInsight_Found(t *testing.T) {
 	assertStatus(t, w, http.StatusNotFound)
 }
 
-func TestDeleteInsight_NotFound(t *testing.T) {
-	te := setup(t)
+func TestInsight_ResourceErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		status int
+	}{
+		{"Get_NotFound", http.MethodGet, "/api/v1/insights/99999", http.StatusNotFound},
+		{"Get_InvalidID", http.MethodGet, "/api/v1/insights/abc", http.StatusBadRequest},
+		{"Delete_NotFound", http.MethodDelete, "/api/v1/insights/99999", http.StatusNotFound},
+		{"Delete_InvalidID", http.MethodDelete, "/api/v1/insights/abc", http.StatusBadRequest},
+	}
 
-	w := te.del(t, "/api/v1/insights/99999")
-	assertStatus(t, w, http.StatusNotFound)
-}
-
-func TestDeleteInsight_InvalidID(t *testing.T) {
-	te := setup(t)
-
-	w := te.del(t, "/api/v1/insights/abc")
-	assertStatus(t, w, http.StatusBadRequest)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			te := setup(t)
+			if tt.method == http.MethodGet {
+				w := te.get(t, tt.path)
+				assertStatus(t, w, tt.status)
+			} else {
+				w := te.del(t, tt.path)
+				assertStatus(t, w, tt.status)
+			}
+		})
+	}
 }
 
 // --- helpers ---

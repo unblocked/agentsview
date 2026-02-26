@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/wesm/agentsview/internal/db"
@@ -39,14 +40,29 @@ func assertSessionState(t *testing.T, database *db.DB, sessionID string, check f
 	}
 }
 
-func runSyncAndAssert(t *testing.T, engine *sync.Engine, wantSynced, wantSkipped int) sync.SyncStats {
+func assertSessionMessageCount(t *testing.T, database *db.DB, sessionID string, want int) {
+	t.Helper()
+	assertSessionState(t, database, sessionID, func(sess *db.Session) {
+		if sess.MessageCount != want {
+			t.Errorf("session %q message_count = %d, want %d", sessionID, sess.MessageCount, want)
+		}
+	})
+}
+
+func assertSessionProject(t *testing.T, database *db.DB, sessionID string, want string) {
+	t.Helper()
+	assertSessionState(t, database, sessionID, func(sess *db.Session) {
+		if sess.Project != want {
+			t.Errorf("session %q project = %q, want %q", sessionID, sess.Project, want)
+		}
+	})
+}
+
+func runSyncAndAssert(t *testing.T, engine *sync.Engine, want sync.SyncStats) sync.SyncStats {
 	t.Helper()
 	stats := engine.SyncAll(nil)
-	if stats.Synced != wantSynced {
-		t.Fatalf("Synced: got %d, want %d", stats.Synced, wantSynced)
-	}
-	if stats.Skipped != wantSkipped {
-		t.Fatalf("Skipped: got %d, want %d", stats.Skipped, wantSkipped)
+	if diff := cmp.Diff(want, stats); diff != "" {
+		t.Fatalf("SyncAll() mismatch (-want +got):\n%s", diff)
 	}
 	return stats
 }
@@ -86,7 +102,16 @@ func (e *testEnv) assertResyncRoundTrip(
 		t.Error("SyncSingleSession did not store mtime")
 	}
 
-	runSyncAndAssert(t, e.engine, 0, 1)
+	runSyncAndAssert(t, e.engine, sync.SyncStats{TotalSessions: 0 + 1, Synced: 0, Skipped: 1})
+}
+
+func fetchMessages(t *testing.T, database *db.DB, sessionID string) []db.Message {
+	t.Helper()
+	msgs, err := database.GetAllMessages(context.Background(), sessionID)
+	if err != nil {
+		t.Fatalf("GetAllMessages(%q): %v", sessionID, err)
+	}
+	return msgs
 }
 
 // assertMessageRoles verifies that a session's messages have
@@ -96,12 +121,7 @@ func assertMessageRoles(
 	sessionID string, wantRoles ...string,
 ) {
 	t.Helper()
-	msgs, err := database.GetAllMessages(
-		context.Background(), sessionID,
-	)
-	if err != nil {
-		t.Fatalf("GetAllMessages(%q): %v", sessionID, err)
-	}
+	msgs := fetchMessages(t, database, sessionID)
 	if len(msgs) != len(wantRoles) {
 		t.Fatalf("got %d messages, want %d",
 			len(msgs), len(wantRoles))
@@ -121,13 +141,7 @@ func assertMessageContent(
 	sessionID string, wantContent ...string,
 ) {
 	t.Helper()
-	msgs, err := database.GetAllMessages(
-		context.Background(), sessionID,
-	)
-	if err != nil {
-		t.Fatalf("GetAllMessages(%q): %v",
-			sessionID, err)
-	}
+	msgs := fetchMessages(t, database, sessionID)
 	if len(msgs) != len(wantContent) {
 		t.Fatalf("got %d messages, want %d",
 			len(msgs), len(wantContent))
@@ -236,17 +250,21 @@ func createOpenCodeDB(t *testing.T, dir string) *openCodeTestDB {
 	return &openCodeTestDB{path: path, db: d}
 }
 
+func (oc *openCodeTestDB) mustExec(t *testing.T, msg, query string, args ...any) {
+	t.Helper()
+	if _, err := oc.db.Exec(query, args...); err != nil {
+		t.Fatalf("%s: %v", msg, err)
+	}
+}
+
 func (oc *openCodeTestDB) addProject(
 	t *testing.T, id, worktree string,
 ) {
 	t.Helper()
-	_, err := oc.db.Exec(
+	oc.mustExec(t, "insert project",
 		"INSERT INTO project (id, worktree) VALUES (?, ?)",
 		id, worktree,
 	)
-	if err != nil {
-		t.Fatalf("insert project: %v", err)
-	}
 }
 
 func (oc *openCodeTestDB) addSession(
@@ -255,28 +273,22 @@ func (oc *openCodeTestDB) addSession(
 	timeCreated, timeUpdated int64,
 ) {
 	t.Helper()
-	_, err := oc.db.Exec(
+	oc.mustExec(t, "insert session",
 		`INSERT INTO session
 			(id, project_id, time_created, time_updated)
 		 VALUES (?, ?, ?, ?)`,
 		id, projectID, timeCreated, timeUpdated,
 	)
-	if err != nil {
-		t.Fatalf("insert session: %v", err)
-	}
 }
 
 func (oc *openCodeTestDB) updateSessionTime(
 	t *testing.T, id string, timeUpdated int64,
 ) {
 	t.Helper()
-	_, err := oc.db.Exec(
+	oc.mustExec(t, "update session time",
 		"UPDATE session SET time_updated = ? WHERE id = ?",
 		timeUpdated, id,
 	)
-	if err != nil {
-		t.Fatalf("update session time: %v", err)
-	}
 }
 
 func (oc *openCodeTestDB) addMessage(
@@ -285,18 +297,18 @@ func (oc *openCodeTestDB) addMessage(
 	timeCreated int64,
 ) {
 	t.Helper()
-	data, _ := json.Marshal(map[string]string{
+	data, err := json.Marshal(map[string]string{
 		"role": role,
 	})
-	_, err := oc.db.Exec(
+	if err != nil {
+		t.Fatalf("marshal message: %v", err)
+	}
+	oc.mustExec(t, "insert message",
 		`INSERT INTO message
 			(id, session_id, data, time_created)
 		 VALUES (?, ?, ?, ?)`,
 		id, sessionID, string(data), timeCreated,
 	)
-	if err != nil {
-		t.Fatalf("insert message: %v", err)
-	}
 }
 
 func (oc *openCodeTestDB) addTextPart(
@@ -305,19 +317,19 @@ func (oc *openCodeTestDB) addTextPart(
 	timeCreated int64,
 ) {
 	t.Helper()
-	data, _ := json.Marshal(map[string]string{
+	data, err := json.Marshal(map[string]string{
 		"type":    "text",
 		"content": content,
 	})
-	_, err := oc.db.Exec(
+	if err != nil {
+		t.Fatalf("marshal text part: %v", err)
+	}
+	oc.mustExec(t, "insert part",
 		`INSERT INTO part
 			(id, session_id, message_id, data, time_created)
 		 VALUES (?, ?, ?, ?, ?)`,
 		id, sessionID, messageID, string(data), timeCreated,
 	)
-	if err != nil {
-		t.Fatalf("insert part: %v", err)
-	}
 }
 
 func (oc *openCodeTestDB) addToolPart(
@@ -327,46 +339,40 @@ func (oc *openCodeTestDB) addToolPart(
 	timeCreated int64,
 ) {
 	t.Helper()
-	data, _ := json.Marshal(map[string]any{
+	data, err := json.Marshal(map[string]any{
 		"type":   "tool",
 		"tool":   toolName,
 		"callID": callID,
 	})
-	_, err := oc.db.Exec(
+	if err != nil {
+		t.Fatalf("marshal tool part: %v", err)
+	}
+	oc.mustExec(t, "insert tool part",
 		`INSERT INTO part
 			(id, session_id, message_id, data, time_created)
 		 VALUES (?, ?, ?, ?, ?)`,
 		id, sessionID, messageID, string(data), timeCreated,
 	)
-	if err != nil {
-		t.Fatalf("insert tool part: %v", err)
-	}
 }
 
 func (oc *openCodeTestDB) deleteMessages(
 	t *testing.T, sessionID string,
 ) {
 	t.Helper()
-	_, err := oc.db.Exec(
+	oc.mustExec(t, "delete messages",
 		"DELETE FROM message WHERE session_id = ?",
 		sessionID,
 	)
-	if err != nil {
-		t.Fatalf("delete messages: %v", err)
-	}
 }
 
 func (oc *openCodeTestDB) deleteParts(
 	t *testing.T, sessionID string,
 ) {
 	t.Helper()
-	_, err := oc.db.Exec(
+	oc.mustExec(t, "delete parts",
 		"DELETE FROM part WHERE session_id = ?",
 		sessionID,
 	)
-	if err != nil {
-		t.Fatalf("delete parts: %v", err)
-	}
 }
 
 // replaceTextContent deletes all messages and parts for a
