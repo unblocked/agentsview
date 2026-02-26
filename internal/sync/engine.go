@@ -1316,6 +1316,7 @@ func convertToolResults(
 		results[i] = db.ToolResult{
 			ToolUseID:     tr.ToolUseID,
 			ContentLength: tr.ContentLength,
+			Content:       tr.Content,
 		}
 	}
 	return results
@@ -1358,6 +1359,7 @@ func pairToolResults(msgs []db.Message) {
 		for _, tr := range m.ToolResults {
 			if tc, ok := idx[tr.ToolUseID]; ok {
 				tc.ResultContentLength = tr.ContentLength
+				tc.ResultContent = tr.Content
 			}
 		}
 	}

@@ -173,6 +173,12 @@
     {:else if genericInputDisplay}
       <pre class="tool-content">{genericInputDisplay}</pre>
     {/if}
+    {#if toolCall?.result_content}
+      <div class="tool-result-section">
+        <span class="result-label">Result</span>
+      </div>
+      <pre class="tool-content tool-result">{toolCall.result_content}</pre>
+    {/if}
   {/if}
   {#if subagentSessionId}
     <SubagentInline sessionId={subagentSessionId} />
@@ -309,5 +315,28 @@
 
   .unblocked .tool-content {
     border-top-color: color-mix(in srgb, var(--accent-purple) 20%, transparent);
+  }
+
+  .tool-result-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 14px;
+    border-top: 1px solid var(--border-muted);
+  }
+
+  .result-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent-green, #4ade80);
+  }
+
+  .tool-result {
+    border-top: none;
+    color: var(--text-muted);
+    max-height: 400px;
+    overflow-y: auto;
   }
 </style>

@@ -31,7 +31,7 @@ func TestFilterEmptyMessages(t *testing.T) {
 					Role:    "user",
 					Content: "",
 					ToolResults: []db.ToolResult{
-						{ToolUseID: "t1", ContentLength: 500},
+						{ToolUseID: "t1", ContentLength: 500, Content: "file data"},
 					},
 				},
 			},
@@ -40,7 +40,7 @@ func TestFilterEmptyMessages(t *testing.T) {
 					Role:    "assistant",
 					Content: "Let me read the file.",
 					ToolCalls: []db.ToolCall{
-						{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 500},
+						{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 500, ResultContent: "file data"},
 					},
 				},
 			},
@@ -59,7 +59,7 @@ func TestFilterEmptyMessages(t *testing.T) {
 					Role:    "user",
 					Content: "",
 					ToolResults: []db.ToolResult{
-						{ToolUseID: "t1", ContentLength: 100},
+						{ToolUseID: "t1", ContentLength: 100, Content: "bash output"},
 					},
 				},
 				{
@@ -72,7 +72,7 @@ func TestFilterEmptyMessages(t *testing.T) {
 					Role:    "assistant",
 					Content: "Here is the result.",
 					ToolCalls: []db.ToolCall{
-						{ToolUseID: "t1", ToolName: "Bash", ResultContentLength: 100},
+						{ToolUseID: "t1", ToolName: "Bash", ResultContentLength: 100, ResultContent: "bash output"},
 					},
 				},
 				{
@@ -95,7 +95,7 @@ func TestFilterEmptyMessages(t *testing.T) {
 					Role:    "user",
 					Content: "   \n\t  ",
 					ToolResults: []db.ToolResult{
-						{ToolUseID: "t1", ContentLength: 300},
+						{ToolUseID: "t1", ContentLength: 300, Content: "read output"},
 					},
 				},
 			},
@@ -104,7 +104,7 @@ func TestFilterEmptyMessages(t *testing.T) {
 					Role:    "assistant",
 					Content: "Reading...",
 					ToolCalls: []db.ToolCall{
-						{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 300},
+						{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 300, ResultContent: "read output"},
 					},
 				},
 			},
@@ -230,18 +230,18 @@ func TestPairToolResults(t *testing.T) {
 					{ToolUseID: "t2", ToolName: "Grep"},
 				}},
 				{ToolResults: []db.ToolResult{
-					{ToolUseID: "t1", ContentLength: 100},
-					{ToolUseID: "t2", ContentLength: 200},
+					{ToolUseID: "t1", ContentLength: 100, Content: "file contents"},
+					{ToolUseID: "t2", ContentLength: 200, Content: "grep output"},
 				}},
 			},
 			want: []db.Message{
 				{ToolCalls: []db.ToolCall{
-					{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 100},
-					{ToolUseID: "t2", ToolName: "Grep", ResultContentLength: 200},
+					{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 100, ResultContent: "file contents"},
+					{ToolUseID: "t2", ToolName: "Grep", ResultContentLength: 200, ResultContent: "grep output"},
 				}},
 				{ToolResults: []db.ToolResult{
-					{ToolUseID: "t1", ContentLength: 100},
-					{ToolUseID: "t2", ContentLength: 200},
+					{ToolUseID: "t1", ContentLength: 100, Content: "file contents"},
+					{ToolUseID: "t2", ContentLength: 200, Content: "grep output"},
 				}},
 			},
 		},
@@ -252,17 +252,17 @@ func TestPairToolResults(t *testing.T) {
 					{ToolUseID: "t1", ToolName: "Read"},
 				}},
 				{ToolResults: []db.ToolResult{
-					{ToolUseID: "t1", ContentLength: 50},
-					{ToolUseID: "t_unknown", ContentLength: 999},
+					{ToolUseID: "t1", ContentLength: 50, Content: "data"},
+					{ToolUseID: "t_unknown", ContentLength: 999, Content: "orphan"},
 				}},
 			},
 			want: []db.Message{
 				{ToolCalls: []db.ToolCall{
-					{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 50},
+					{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 50, ResultContent: "data"},
 				}},
 				{ToolResults: []db.ToolResult{
-					{ToolUseID: "t1", ContentLength: 50},
-					{ToolUseID: "t_unknown", ContentLength: 999},
+					{ToolUseID: "t1", ContentLength: 50, Content: "data"},
+					{ToolUseID: "t_unknown", ContentLength: 999, Content: "orphan"},
 				}},
 			},
 		},
@@ -274,16 +274,16 @@ func TestPairToolResults(t *testing.T) {
 					{ToolUseID: "t2", ToolName: "Bash"},
 				}},
 				{ToolResults: []db.ToolResult{
-					{ToolUseID: "t1", ContentLength: 42},
+					{ToolUseID: "t1", ContentLength: 42, Content: "result text"},
 				}},
 			},
 			want: []db.Message{
 				{ToolCalls: []db.ToolCall{
-					{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 42},
+					{ToolUseID: "t1", ToolName: "Read", ResultContentLength: 42, ResultContent: "result text"},
 					{ToolUseID: "t2", ToolName: "Bash", ResultContentLength: 0},
 				}},
 				{ToolResults: []db.ToolResult{
-					{ToolUseID: "t1", ContentLength: 42},
+					{ToolUseID: "t1", ContentLength: 42, Content: "result text"},
 				}},
 			},
 		},
