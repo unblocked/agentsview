@@ -965,11 +965,10 @@ func (e *Engine) writeSessionFull(pw pendingWrite) {
 
 // toDBSession converts a pendingWrite to a db.Session.
 func toDBSession(pw pendingWrite) db.Session {
-	var tokensByModelJSON *string
+	var tokensByModelJSON db.RawJSON
 	if len(pw.sess.TokensByModel) > 0 {
 		if b, err := json.Marshal(pw.sess.TokensByModel); err == nil {
-			s := string(b)
-			tokensByModelJSON = &s
+			tokensByModelJSON = db.RawJSON(b)
 		}
 	}
 	s := db.Session{

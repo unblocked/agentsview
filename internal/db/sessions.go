@@ -5,12 +5,48 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 )
+
+// RawJSON is a []byte type that stores pre-serialized JSON.
+// It implements sql.Scanner (handling NULL), driver.Valuer
+// (storing as TEXT), and json.Marshaler (passing through raw JSON).
+type RawJSON []byte
+
+func (r *RawJSON) Scan(value interface{}) error {
+	if value == nil {
+		*r = nil
+		return nil
+	}
+	switch v := value.(type) {
+	case string:
+		*r = RawJSON(v)
+	case []byte:
+		*r = append((*r)[:0], v...)
+	default:
+		return fmt.Errorf("RawJSON: unsupported scan type %T", value)
+	}
+	return nil
+}
+
+func (r RawJSON) Value() (driver.Value, error) {
+	if r == nil {
+		return nil, nil
+	}
+	return string(r), nil
+}
+
+func (r RawJSON) MarshalJSON() ([]byte, error) {
+	if r == nil {
+		return []byte("null"), nil
+	}
+	return []byte(r), nil
+}
 
 // ErrInvalidCursor is returned when a cursor cannot be decoded or verified.
 var ErrInvalidCursor = errors.New("invalid cursor")
@@ -91,7 +127,7 @@ type Session struct {
 	OutputTokens             int64   `json:"output_tokens"`
 	CacheCreationInputTokens int64   `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     int64   `json:"cache_read_input_tokens"`
-	TokenUsageByModel        *string `json:"token_usage_by_model,omitempty"`
+	TokenUsageByModel        RawJSON `json:"token_usage_by_model,omitempty"`
 	ParentSessionID          *string `json:"parent_session_id,omitempty"`
 	RelationshipType         string  `json:"relationship_type,omitempty"`
 	FilePath                 *string `json:"file_path,omitempty"`
