@@ -8,12 +8,16 @@
     session: Session;
     continuationCount?: number;
     groupSessionIds?: string[];
+    groupTotalTokens?: number;
+    groupMcpServers?: string[];
   }
 
   let {
     session,
     continuationCount = 1,
     groupSessionIds,
+    groupTotalTokens,
+    groupMcpServers,
   }: Props = $props();
 
   let isActive = $derived(
@@ -41,14 +45,15 @@
   );
 
   let hasUnblocked = $derived(
-    session.mcp_servers?.includes("unblocked") ?? false,
+    (groupMcpServers ?? session.mcp_servers ?? []).includes("unblocked"),
   );
 
   let totalTokens = $derived(
-    session.input_tokens +
+    groupTotalTokens ??
+    (session.input_tokens +
     session.output_tokens +
     session.cache_creation_input_tokens +
-    session.cache_read_input_tokens,
+    session.cache_read_input_tokens),
   );
 
   let tokenStr = $derived(

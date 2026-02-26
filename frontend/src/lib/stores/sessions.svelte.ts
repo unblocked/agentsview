@@ -9,6 +9,8 @@ export interface SessionGroup {
   sessions: Session[];
   primarySessionId: string;
   totalMessages: number;
+  totalTokens: number;
+  mcpServers: string[];
   firstMessage: string | null;
   startedAt: string | null;
   endedAt: string | null;
@@ -433,6 +435,8 @@ export function buildSessionGroups(
         sessions: [],
         primarySessionId: s.id,
         totalMessages: 0,
+        totalTokens: 0,
+        mcpServers: [],
         firstMessage: null,
         startedAt: null,
         endedAt: null,
@@ -443,6 +447,18 @@ export function buildSessionGroups(
 
     group.sessions.push(s);
     group.totalMessages += s.message_count;
+    group.totalTokens +=
+      s.input_tokens +
+      s.output_tokens +
+      s.cache_creation_input_tokens +
+      s.cache_read_input_tokens;
+    if (s.mcp_servers) {
+      for (const srv of s.mcp_servers) {
+        if (!group.mcpServers.includes(srv)) {
+          group.mcpServers.push(srv);
+        }
+      }
+    }
     group.startedAt = minString(
       group.startedAt,
       s.started_at,
