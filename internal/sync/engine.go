@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"maps"
@@ -964,6 +965,13 @@ func (e *Engine) writeSessionFull(pw pendingWrite) {
 
 // toDBSession converts a pendingWrite to a db.Session.
 func toDBSession(pw pendingWrite) db.Session {
+	var tokensByModelJSON *string
+	if len(pw.sess.TokensByModel) > 0 {
+		if b, err := json.Marshal(pw.sess.TokensByModel); err == nil {
+			s := string(b)
+			tokensByModelJSON = &s
+		}
+	}
 	s := db.Session{
 		ID:                       pw.sess.ID,
 		Project:                  pw.sess.Project,
@@ -975,6 +983,7 @@ func toDBSession(pw pendingWrite) db.Session {
 		OutputTokens:             pw.sess.OutputTokens,
 		CacheCreationInputTokens: pw.sess.CacheCreationInputTokens,
 		CacheReadInputTokens:     pw.sess.CacheReadInputTokens,
+		TokenUsageByModel:        tokensByModelJSON,
 		ParentSessionID:          strPtr(pw.sess.ParentSessionID),
 		RelationshipType:         string(pw.sess.RelationshipType),
 		FilePath:                 strPtr(pw.sess.File.Path),

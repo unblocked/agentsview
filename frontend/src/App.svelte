@@ -5,6 +5,7 @@
   import StatusBar from "./lib/components/layout/StatusBar.svelte";
   import SessionList from "./lib/components/sidebar/SessionList.svelte";
   import MessageList from "./lib/components/content/MessageList.svelte";
+  import TokenUsagePanel from "./lib/components/content/TokenUsagePanel.svelte";
   import CommandPalette from "./lib/components/command-palette/CommandPalette.svelte";
   import ShortcutsModal from "./lib/components/modals/ShortcutsModal.svelte";
   import PublishModal from "./lib/components/modals/PublishModal.svelte";
@@ -224,6 +225,9 @@
             </span>
           {/if}
         </div>
+        {#if session}
+          <TokenUsagePanel {session} />
+        {/if}
         <MessageList bind:this={messageListRef} />
       {:else}
         <AnalyticsPage />

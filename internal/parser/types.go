@@ -59,7 +59,16 @@ type ParsedSession struct {
 	OutputTokens             int64
 	CacheCreationInputTokens int64
 	CacheReadInputTokens     int64
+	TokensByModel            map[string]ModelTokenUsage
 	File                     FileInfo
+}
+
+// ModelTokenUsage holds token counts for a single model within a session.
+type ModelTokenUsage struct {
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 }
 
 // ParsedToolCall holds a single tool invocation extracted from

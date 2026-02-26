@@ -220,6 +220,7 @@ func parseLinear(
 		OutputTokens:             tokens.OutputTokens,
 		CacheCreationInputTokens: tokens.CacheCreationInputTokens,
 		CacheReadInputTokens:     tokens.CacheReadInputTokens,
+		TokensByModel:            tokens.ByModel,
 		File:                     fileInfo,
 	}
 
@@ -399,6 +400,7 @@ func parseDAG(
 			OutputTokens:             tokens.OutputTokens,
 			CacheCreationInputTokens: tokens.CacheCreationInputTokens,
 			CacheReadInputTokens:     tokens.CacheReadInputTokens,
+			TokensByModel:            tokens.ByModel,
 			File:                     fileInfo,
 		}
 
@@ -440,6 +442,7 @@ type tokenUsage struct {
 	OutputTokens             int64
 	CacheCreationInputTokens int64
 	CacheReadInputTokens     int64
+	ByModel                  map[string]ModelTokenUsage
 }
 
 // extractMessages converts dagEntries into ParsedMessages, applying
@@ -459,6 +462,7 @@ func extractMessages(entries []dagEntry) (
 	// Track the last usage seen per messageId to avoid
 	// double-counting from streaming duplicate lines.
 	type usageEntry struct {
+		model         string
 		input         int64
 		output        int64
 		cacheCreation int64
@@ -485,6 +489,7 @@ func extractMessages(entries []dagEntry) (
 					msgID = e.uuid
 				}
 				ue := usageEntry{
+					model:         gjson.Get(e.line, "message.model").Str,
 					input:         usage.Get("input_tokens").Int(),
 					output:        usage.Get("output_tokens").Int(),
 					cacheCreation: usage.Get("cache_creation_input_tokens").Int(),
@@ -536,13 +541,25 @@ func extractMessages(entries []dagEntry) (
 		ordinal++
 	}
 
-	// Sum the final usage per unique message.
+	// Sum the final usage per unique message, both as
+	// session-level aggregates and per-model breakdowns.
+	byModel := make(map[string]ModelTokenUsage)
 	for _, ue := range lastUsage {
 		tokens.InputTokens += ue.input
 		tokens.OutputTokens += ue.output
 		tokens.CacheCreationInputTokens += ue.cacheCreation
 		tokens.CacheReadInputTokens += ue.cacheRead
+
+		if ue.model != "" {
+			m := byModel[ue.model]
+			m.InputTokens += ue.input
+			m.OutputTokens += ue.output
+			m.CacheCreationInputTokens += ue.cacheCreation
+			m.CacheReadInputTokens += ue.cacheRead
+			byModel[ue.model] = m
+		}
 	}
+	tokens.ByModel = byModel
 
 	return messages, startedAt, endedAt, tokens
 }

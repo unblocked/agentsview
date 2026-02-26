@@ -217,7 +217,21 @@ func needsRebuild(path string) (bool, error) {
 			"probing schema: %w", err,
 		)
 	}
-	return tokenColCount == 0, nil
+	if tokenColCount == 0 {
+		return true, nil
+	}
+
+	var modelTokenColCount int
+	err = conn.QueryRow(
+		`SELECT count(*) FROM pragma_table_info('sessions')
+		 WHERE name = 'token_usage_by_model'`,
+	).Scan(&modelTokenColCount)
+	if err != nil {
+		return false, fmt.Errorf(
+			"probing schema: %w", err,
+		)
+	}
+	return modelTokenColCount == 0, nil
 }
 
 func dropDatabase(path string) error {
