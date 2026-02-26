@@ -20,6 +20,8 @@ var ErrInvalidCursor = errors.New("invalid cursor")
 const sessionBaseCols = `id, project, machine, agent,
 	first_message, started_at, ended_at,
 	message_count, user_message_count,
+	input_tokens, output_tokens,
+	cache_creation_input_tokens, cache_read_input_tokens,
 	parent_session_id, relationship_type, created_at`
 
 // sessionPruneCols extends sessionBaseCols with file metadata
@@ -27,6 +29,8 @@ const sessionBaseCols = `id, project, machine, agent,
 const sessionPruneCols = `id, project, machine, agent,
 	first_message, started_at, ended_at,
 	message_count, user_message_count,
+	input_tokens, output_tokens,
+	cache_creation_input_tokens, cache_read_input_tokens,
 	parent_session_id, relationship_type,
 	file_path, file_size, created_at`
 
@@ -34,6 +38,8 @@ const sessionPruneCols = `id, project, machine, agent,
 const sessionFullCols = `id, project, machine, agent,
 	first_message, started_at, ended_at,
 	message_count, user_message_count,
+	input_tokens, output_tokens,
+	cache_creation_input_tokens, cache_read_input_tokens,
 	parent_session_id, relationship_type,
 	file_path, file_size, file_mtime,
 	file_hash, created_at`
@@ -58,6 +64,8 @@ func scanSessionRow(rs rowScanner) (Session, error) {
 		&s.ID, &s.Project, &s.Machine, &s.Agent,
 		&s.FirstMessage, &s.StartedAt, &s.EndedAt,
 		&s.MessageCount, &s.UserMessageCount,
+		&s.InputTokens, &s.OutputTokens,
+		&s.CacheCreationInputTokens, &s.CacheReadInputTokens,
 		&s.ParentSessionID, &s.RelationshipType,
 		&s.CreatedAt,
 	)
@@ -66,22 +74,26 @@ func scanSessionRow(rs rowScanner) (Session, error) {
 
 // Session represents a row in the sessions table.
 type Session struct {
-	ID               string  `json:"id"`
-	Project          string  `json:"project"`
-	Machine          string  `json:"machine"`
-	Agent            string  `json:"agent"`
-	FirstMessage     *string `json:"first_message"`
-	StartedAt        *string `json:"started_at"`
-	EndedAt          *string `json:"ended_at"`
-	MessageCount     int     `json:"message_count"`
-	UserMessageCount int     `json:"user_message_count"`
-	ParentSessionID  *string `json:"parent_session_id,omitempty"`
-	RelationshipType string  `json:"relationship_type,omitempty"`
-	FilePath         *string `json:"file_path,omitempty"`
-	FileSize         *int64  `json:"file_size,omitempty"`
-	FileMtime        *int64  `json:"file_mtime,omitempty"`
-	FileHash         *string `json:"file_hash,omitempty"`
-	CreatedAt        string  `json:"created_at"`
+	ID                       string  `json:"id"`
+	Project                  string  `json:"project"`
+	Machine                  string  `json:"machine"`
+	Agent                    string  `json:"agent"`
+	FirstMessage             *string `json:"first_message"`
+	StartedAt                *string `json:"started_at"`
+	EndedAt                  *string `json:"ended_at"`
+	MessageCount             int     `json:"message_count"`
+	UserMessageCount         int     `json:"user_message_count"`
+	InputTokens              int64   `json:"input_tokens"`
+	OutputTokens             int64   `json:"output_tokens"`
+	CacheCreationInputTokens int64   `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64   `json:"cache_read_input_tokens"`
+	ParentSessionID          *string `json:"parent_session_id,omitempty"`
+	RelationshipType         string  `json:"relationship_type,omitempty"`
+	FilePath                 *string `json:"file_path,omitempty"`
+	FileSize                 *int64  `json:"file_size,omitempty"`
+	FileMtime                *int64  `json:"file_mtime,omitempty"`
+	FileHash                 *string `json:"file_hash,omitempty"`
+	CreatedAt                string  `json:"created_at"`
 }
 
 // SessionCursor is the opaque pagination token.
@@ -362,6 +374,8 @@ func (db *DB) GetSessionFull(
 		&s.ID, &s.Project, &s.Machine, &s.Agent,
 		&s.FirstMessage, &s.StartedAt, &s.EndedAt,
 		&s.MessageCount, &s.UserMessageCount,
+		&s.InputTokens, &s.OutputTokens,
+		&s.CacheCreationInputTokens, &s.CacheReadInputTokens,
 		&s.ParentSessionID, &s.RelationshipType,
 		&s.FilePath, &s.FileSize,
 		&s.FileMtime, &s.FileHash, &s.CreatedAt,
@@ -384,10 +398,12 @@ func (db *DB) UpsertSession(s Session) error {
 		INSERT INTO sessions (
 			id, project, machine, agent, first_message,
 			started_at, ended_at, message_count,
-			user_message_count, parent_session_id,
-			relationship_type,
+			user_message_count,
+			input_tokens, output_tokens,
+			cache_creation_input_tokens, cache_read_input_tokens,
+			parent_session_id, relationship_type,
 			file_path, file_size, file_mtime, file_hash
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			project = excluded.project,
 			machine = excluded.machine,
@@ -397,6 +413,10 @@ func (db *DB) UpsertSession(s Session) error {
 			ended_at = excluded.ended_at,
 			message_count = excluded.message_count,
 			user_message_count = excluded.user_message_count,
+			input_tokens = excluded.input_tokens,
+			output_tokens = excluded.output_tokens,
+			cache_creation_input_tokens = excluded.cache_creation_input_tokens,
+			cache_read_input_tokens = excluded.cache_read_input_tokens,
 			parent_session_id = excluded.parent_session_id,
 			relationship_type = excluded.relationship_type,
 			file_path = excluded.file_path,
@@ -405,8 +425,10 @@ func (db *DB) UpsertSession(s Session) error {
 			file_hash = excluded.file_hash`,
 		s.ID, s.Project, s.Machine, s.Agent, s.FirstMessage,
 		s.StartedAt, s.EndedAt, s.MessageCount,
-		s.UserMessageCount, s.ParentSessionID,
-		s.RelationshipType,
+		s.UserMessageCount,
+		s.InputTokens, s.OutputTokens,
+		s.CacheCreationInputTokens, s.CacheReadInputTokens,
+		s.ParentSessionID, s.RelationshipType,
 		s.FilePath, s.FileSize, s.FileMtime, s.FileHash)
 	if err != nil {
 		return fmt.Errorf("upserting session %s: %w", s.ID, err)
@@ -642,6 +664,8 @@ func (db *DB) FindPruneCandidates(
 			&s.ID, &s.Project, &s.Machine, &s.Agent,
 			&s.FirstMessage, &s.StartedAt, &s.EndedAt,
 			&s.MessageCount, &s.UserMessageCount,
+			&s.InputTokens, &s.OutputTokens,
+			&s.CacheCreationInputTokens, &s.CacheReadInputTokens,
 			&s.ParentSessionID, &s.RelationshipType,
 			&s.FilePath, &s.FileSize, &s.CreatedAt,
 		)

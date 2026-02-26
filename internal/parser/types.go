@@ -44,18 +44,22 @@ type FileInfo struct {
 
 // ParsedSession holds session metadata extracted from a JSONL file.
 type ParsedSession struct {
-	ID               string
-	Project          string
-	Machine          string
-	Agent            AgentType
-	ParentSessionID  string
-	RelationshipType RelationshipType
-	FirstMessage     string
-	StartedAt        time.Time
-	EndedAt          time.Time
-	MessageCount     int
-	UserMessageCount int
-	File             FileInfo
+	ID                       string
+	Project                  string
+	Machine                  string
+	Agent                    AgentType
+	ParentSessionID          string
+	RelationshipType         RelationshipType
+	FirstMessage             string
+	StartedAt                time.Time
+	EndedAt                  time.Time
+	MessageCount             int
+	UserMessageCount         int
+	InputTokens              int64
+	OutputTokens             int64
+	CacheCreationInputTokens int64
+	CacheReadInputTokens     int64
+	File                     FileInfo
 }
 
 // ParsedToolCall holds a single tool invocation extracted from

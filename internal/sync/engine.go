@@ -965,18 +965,22 @@ func (e *Engine) writeSessionFull(pw pendingWrite) {
 // toDBSession converts a pendingWrite to a db.Session.
 func toDBSession(pw pendingWrite) db.Session {
 	s := db.Session{
-		ID:               pw.sess.ID,
-		Project:          pw.sess.Project,
-		Machine:          pw.sess.Machine,
-		Agent:            string(pw.sess.Agent),
-		MessageCount:     pw.sess.MessageCount,
-		UserMessageCount: pw.sess.UserMessageCount,
-		ParentSessionID:  strPtr(pw.sess.ParentSessionID),
-		RelationshipType: string(pw.sess.RelationshipType),
-		FilePath:         strPtr(pw.sess.File.Path),
-		FileSize:         int64Ptr(pw.sess.File.Size),
-		FileMtime:        int64Ptr(pw.sess.File.Mtime),
-		FileHash:         strPtr(pw.sess.File.Hash),
+		ID:                       pw.sess.ID,
+		Project:                  pw.sess.Project,
+		Machine:                  pw.sess.Machine,
+		Agent:                    string(pw.sess.Agent),
+		MessageCount:             pw.sess.MessageCount,
+		UserMessageCount:         pw.sess.UserMessageCount,
+		InputTokens:              pw.sess.InputTokens,
+		OutputTokens:             pw.sess.OutputTokens,
+		CacheCreationInputTokens: pw.sess.CacheCreationInputTokens,
+		CacheReadInputTokens:     pw.sess.CacheReadInputTokens,
+		ParentSessionID:          strPtr(pw.sess.ParentSessionID),
+		RelationshipType:         string(pw.sess.RelationshipType),
+		FilePath:                 strPtr(pw.sess.File.Path),
+		FileSize:                 int64Ptr(pw.sess.File.Size),
+		FileMtime:                int64Ptr(pw.sess.File.Mtime),
+		FileHash:                 strPtr(pw.sess.File.Hash),
 	}
 	if pw.sess.FirstMessage != "" {
 		s.FirstMessage = &pw.sess.FirstMessage

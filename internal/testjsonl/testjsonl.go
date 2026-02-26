@@ -98,6 +98,30 @@ func ClaudeAssistantJSON(content any, timestamp string) string {
 	return mustMarshal(m)
 }
 
+// ClaudeAssistantWithUsageJSON returns a Claude assistant message
+// with message.usage fields as a JSON string.
+func ClaudeAssistantWithUsageJSON(
+	content any, timestamp, messageID string,
+	inputTokens, outputTokens,
+	cacheCreation, cacheRead int64,
+) string {
+	m := map[string]any{
+		"type":      "assistant",
+		"timestamp": timestamp,
+		"message": map[string]any{
+			"id":      messageID,
+			"content": content,
+			"usage": map[string]any{
+				"input_tokens":                inputTokens,
+				"output_tokens":               outputTokens,
+				"cache_creation_input_tokens": cacheCreation,
+				"cache_read_input_tokens":     cacheRead,
+			},
+		},
+	}
+	return mustMarshal(m)
+}
+
 // ClaudeSnapshotJSON returns a Claude snapshot message as a
 // JSON string.
 func ClaudeSnapshotJSON(timestamp string) string {

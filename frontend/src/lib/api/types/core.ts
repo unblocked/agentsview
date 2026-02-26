@@ -16,6 +16,10 @@ export interface Session {
   ended_at: string | null;
   message_count: number;
   user_message_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
   parent_session_id?: string;
   relationship_type?: string;
   file_path?: string;
