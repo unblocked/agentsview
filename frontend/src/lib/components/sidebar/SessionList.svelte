@@ -4,8 +4,18 @@
   import { ui } from "../../stores/ui.svelte.js";
   import SessionItem from "./SessionItem.svelte";
   import ContextMenu from "./ContextMenu.svelte";
-  import { formatNumber } from "../../utils/format.js";
+  import { formatNumber, truncate } from "../../utils/format.js";
   import { KNOWN_AGENTS } from "../../utils/agents.js";
+
+  let compareGroupA = $derived(ui.compareGroupA);
+  let compareLabel = $derived(
+    compareGroupA
+      ? truncate(
+          compareGroupA.firstMessage ?? compareGroupA.project,
+          30,
+        )
+      : "",
+  );
 
   const ITEM_HEIGHT = 40;
   const OVERSCAN = 10;
@@ -247,6 +257,18 @@
     {/if}
   </div>
 </div>
+
+{#if compareGroupA}
+  <div class="compare-banner">
+    <span class="compare-banner-text">
+      Right-click another session to compare with "{compareLabel}"
+    </span>
+    <button
+      class="compare-cancel"
+      onclick={() => ui.clearCompare()}
+    >Cancel</button>
+  </div>
+{/if}
 
 <div
   class="session-list-scroll"
@@ -515,6 +537,49 @@
 
   .clear-filters-btn:hover {
     color: var(--text-primary);
+  }
+
+  .compare-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 6px 14px;
+    background: color-mix(in srgb, var(--accent-blue) 10%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent-blue) 25%, transparent);
+    flex-shrink: 0;
+    animation: banner-in 0.15s ease-out;
+  }
+
+  @keyframes banner-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .compare-banner-text {
+    font-size: 10px;
+    color: var(--accent-blue);
+    font-weight: 500;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .compare-cancel {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 1px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--border-muted);
+    flex-shrink: 0;
+    transition: color 0.1s, border-color 0.1s;
+  }
+
+  .compare-cancel:hover {
+    color: var(--text-primary);
+    border-color: var(--border-default);
   }
 
   .session-list-scroll {
