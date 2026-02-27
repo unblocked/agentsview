@@ -246,7 +246,8 @@
           </div>
         {/if}
         {#if session}
-          <TokenUsagePanel {session} />
+          {@const aggregated = sessions.activeSessionAggregated}
+          <TokenUsagePanel session={aggregated ?? session} />
         {/if}
         <MessageList bind:this={messageListRef} />
       {:else}
