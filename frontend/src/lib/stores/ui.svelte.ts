@@ -1,10 +1,19 @@
+import type { SessionGroup } from "./sessions.svelte.js";
+
 type Theme = "light" | "dark";
 type ModalType =
   | "commandPalette"
   | "shortcuts"
   | "publish"
   | "resync"
+  | "compare"
   | null;
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  group: SessionGroup;
+}
 
 function readStoredTheme(): Theme | null {
   if (
@@ -26,6 +35,9 @@ class UIStore {
   selectedOrdinal: number | null = $state(null);
   pendingScrollOrdinal: number | null = $state(null);
   pendingScrollSession: string | null = $state(null);
+  compareGroupA: SessionGroup | null = $state(null);
+  compareGroupB: SessionGroup | null = $state(null);
+  contextMenu: ContextMenuState | null = $state(null);
 
   constructor() {
     $effect.root(() => {
@@ -88,6 +100,22 @@ class UIStore {
     this.selectedOrdinal = ordinal;
     this.pendingScrollOrdinal = ordinal;
     this.pendingScrollSession = sessionId ?? null;
+  }
+
+  startCompare(group: SessionGroup) {
+    this.compareGroupA = group;
+    this.contextMenu = null;
+  }
+
+  completeCompare(group: SessionGroup) {
+    this.compareGroupB = group;
+    this.contextMenu = null;
+    this.activeModal = "compare";
+  }
+
+  clearCompare() {
+    this.compareGroupA = null;
+    this.compareGroupB = null;
   }
 
   closeAll() {

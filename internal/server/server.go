@@ -131,6 +131,7 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /api/v1/insights/{id}", s.withTimeout(s.handleGetInsight))
 	s.mux.Handle("DELETE /api/v1/insights/{id}", s.withTimeout(s.handleDeleteInsight))
 	s.mux.HandleFunc("POST /api/v1/insights/generate", s.handleGenerateInsight)
+	s.mux.HandleFunc("POST /api/v1/compare/generate", s.handleCompareGenerate)
 
 	s.mux.Handle("GET /api/v1/search", s.withTimeout(s.handleSearch))
 	s.mux.Handle("GET /api/v1/projects", s.withTimeout(s.handleListProjects))

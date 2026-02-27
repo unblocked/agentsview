@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import { sessions } from "../../stores/sessions.svelte.js";
+  import { ui } from "../../stores/ui.svelte.js";
   import SessionItem from "./SessionItem.svelte";
+  import ContextMenu from "./ContextMenu.svelte";
   import { formatNumber } from "../../utils/format.js";
   import { KNOWN_AGENTS } from "../../utils/agents.js";
 
@@ -275,6 +277,13 @@
               groupFirstMessage={group.sessions.length > 1
                 ? group.firstMessage
                 : undefined}
+              oncontextmenu={(e) => {
+                ui.contextMenu = {
+                  x: e.clientX,
+                  y: e.clientY,
+                  group,
+                };
+              }}
             />
           {/if}
         {/if}
@@ -282,6 +291,33 @@
     {/each}
   </div>
 </div>
+
+{#if ui.contextMenu}
+  {@const menuGroup = ui.contextMenu.group}
+  {@const menuItems = ui.compareGroupA && ui.compareGroupA.key !== menuGroup.key
+    ? [
+        {
+          label: `Compare with "${(ui.compareGroupA.firstMessage ?? ui.compareGroupA.project).slice(0, 30)}"`,
+          onclick: () => ui.completeCompare(menuGroup),
+        },
+        {
+          label: "Compare with...",
+          onclick: () => ui.startCompare(menuGroup),
+        },
+      ]
+    : [
+        {
+          label: "Compare with...",
+          onclick: () => ui.startCompare(menuGroup),
+        },
+      ]}
+  <ContextMenu
+    x={ui.contextMenu.x}
+    y={ui.contextMenu.y}
+    items={menuItems}
+    onclose={() => (ui.contextMenu = null)}
+  />
+{/if}
 
 <style>
   .session-list-header {

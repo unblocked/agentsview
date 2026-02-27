@@ -554,6 +554,124 @@ export function generateInsight(
   return { abort: () => controller.abort(), done };
 }
 
+/* Compare */
+
+export interface GenerateComparisonHandle {
+  abort: () => void;
+  done: Promise<string>;
+}
+
+export function generateComparison(
+  sessionIdsA: string[],
+  sessionIdsB: string[],
+  onStatus?: (phase: string) => void,
+): GenerateComparisonHandle {
+  const controller = new AbortController();
+
+  const done = (async () => {
+    const res = await fetch(`${BASE}/compare/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_ids_a: sessionIdsA,
+        session_ids_b: sessionIdsB,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok || !res.body) {
+      throw new Error(
+        `Compare request failed: ${res.status}`,
+      );
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let result: string | undefined;
+
+    for (;;) {
+      const { done: eof, value } = await reader.read();
+      if (eof) break;
+      buf += decoder.decode(value, { stream: true });
+      buf = buf.replaceAll("\r\n", "\n");
+
+      const parsed = processCompareFrames(
+        buf, onStatus,
+      );
+      if (parsed !== undefined) {
+        result = parsed;
+        reader.cancel();
+        break;
+      }
+      const last = buf.lastIndexOf("\n\n");
+      if (last !== -1) buf = buf.slice(last + 2);
+    }
+
+    buf += decoder.decode();
+
+    if (result === undefined && buf.trim()) {
+      result = processCompareFrame(buf, onStatus);
+    }
+
+    if (result === undefined) {
+      throw new Error(
+        "Compare stream ended without done event",
+      );
+    }
+
+    return result;
+  })();
+
+  return { abort: () => controller.abort(), done };
+}
+
+function processCompareFrames(
+  buf: string,
+  onStatus?: (phase: string) => void,
+): string | undefined {
+  let idx: number;
+  let start = 0;
+  while ((idx = buf.indexOf("\n\n", start)) !== -1) {
+    const frame = buf.slice(start, idx);
+    start = idx + 2;
+    const result = processCompareFrame(frame, onStatus);
+    if (result !== undefined) return result;
+  }
+  return undefined;
+}
+
+function processCompareFrame(
+  frame: string,
+  onStatus?: (phase: string) => void,
+): string | undefined {
+  let event = "";
+  const dataLines: string[] = [];
+  for (const line of frame.split("\n")) {
+    if (line.startsWith("event: ")) {
+      event = line.slice(7);
+    } else if (line.startsWith("data: ")) {
+      dataLines.push(line.slice(6));
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5));
+    }
+  }
+  const data = dataLines.join("\n");
+  if (!data) return undefined;
+
+  if (event === "status") {
+    const parsed = JSON.parse(data) as { phase: string };
+    onStatus?.(parsed.phase);
+  } else if (event === "done") {
+    const parsed = JSON.parse(data) as { content: string };
+    return parsed.content;
+  } else if (event === "error") {
+    const parsed = JSON.parse(data) as { message: string };
+    throw new Error(parsed.message);
+  }
+  return undefined;
+}
+
 function processInsightFrames(
   buf: string,
   onStatus?: (phase: string) => void,
