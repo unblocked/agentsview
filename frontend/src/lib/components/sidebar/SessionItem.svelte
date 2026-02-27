@@ -11,6 +11,7 @@
     groupTotalTokens?: number;
     groupMcpServers?: string[];
     groupFirstMessage?: string | null;
+    oncontextmenu?: (e: MouseEvent) => void;
   }
 
   let {
@@ -20,6 +21,7 @@
     groupTotalTokens,
     groupMcpServers,
     groupFirstMessage,
+    oncontextmenu: handleContextMenu,
   }: Props = $props();
 
   let isActive = $derived(
@@ -71,6 +73,12 @@
   class:has-unblocked={hasUnblocked}
   data-session-id={session.id}
   onclick={() => sessions.selectSession(session.id)}
+  oncontextmenu={(e) => {
+    if (handleContextMenu) {
+      e.preventDefault();
+      handleContextMenu(e);
+    }
+  }}
 >
   <div class="agent-indicator" style:--agent-c={agentColor}>
     <span

@@ -10,6 +10,7 @@
   import ShortcutsModal from "./lib/components/modals/ShortcutsModal.svelte";
   import PublishModal from "./lib/components/modals/PublishModal.svelte";
   import ResyncModal from "./lib/components/modals/ResyncModal.svelte";
+  import CompareModal from "./lib/components/modals/CompareModal.svelte";
   import AnalyticsPage from "./lib/components/analytics/AnalyticsPage.svelte";
   import InsightsPage from "./lib/components/insights/InsightsPage.svelte";
   import { sessions } from "./lib/stores/sessions.svelte.js";
@@ -246,7 +247,8 @@
           </div>
         {/if}
         {#if session}
-          <TokenUsagePanel {session} />
+          {@const aggregated = sessions.activeSessionAggregated}
+          <TokenUsagePanel session={aggregated ?? session} />
         {/if}
         <MessageList bind:this={messageListRef} />
       {:else}
@@ -272,6 +274,10 @@
 
 {#if ui.activeModal === "resync"}
   <ResyncModal />
+{/if}
+
+{#if ui.activeModal === "compare"}
+  <CompareModal />
 {/if}
 
 <style>

@@ -1,5 +1,5 @@
 import * as api from "../api/client.js";
-import type { Session, ProjectInfo } from "../api/types.js";
+import type { Session, ProjectInfo, ModelTokenUsage } from "../api/types.js";
 
 const SESSION_PAGE_SIZE = 500;
 
@@ -61,6 +61,67 @@ class SessionsStore {
     return this.sessions.find(
       (s) => s.id === this.activeSessionId,
     );
+  }
+
+  get activeSessionAggregated(): Session | undefined {
+    const primary = this.activeSession;
+    if (!primary) return undefined;
+
+    const group = this.groupedSessions.find((g) =>
+      g.sessions.some(
+        (s) => s.id === this.activeSessionId,
+      ),
+    );
+    if (!group || group.sessions.length <= 1) return primary;
+
+    const merged: Record<string, ModelTokenUsage> = {};
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let cacheCreation = 0;
+    let cacheRead = 0;
+    let messageCount = 0;
+    let userMessageCount = 0;
+
+    for (const s of group.sessions) {
+      inputTokens += s.input_tokens;
+      outputTokens += s.output_tokens;
+      cacheCreation += s.cache_creation_input_tokens;
+      cacheRead += s.cache_read_input_tokens;
+      messageCount += s.message_count;
+      userMessageCount += s.user_message_count;
+
+      if (s.token_usage_by_model) {
+        for (const [model, usage] of Object.entries(
+          s.token_usage_by_model,
+        )) {
+          const existing = merged[model];
+          if (existing) {
+            existing.input_tokens += usage.input_tokens;
+            existing.output_tokens += usage.output_tokens;
+            existing.cache_creation_input_tokens +=
+              usage.cache_creation_input_tokens;
+            existing.cache_read_input_tokens +=
+              usage.cache_read_input_tokens;
+          } else {
+            merged[model] = { ...usage };
+          }
+        }
+      }
+    }
+
+    return {
+      ...primary,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cache_creation_input_tokens: cacheCreation,
+      cache_read_input_tokens: cacheRead,
+      message_count: messageCount,
+      user_message_count: userMessageCount,
+      token_usage_by_model:
+        Object.keys(merged).length > 0 ? merged : null,
+      started_at: group.startedAt,
+      ended_at: group.endedAt,
+    };
   }
 
   get activeSessionChain(): string[] | null {

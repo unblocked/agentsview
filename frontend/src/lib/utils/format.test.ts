@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { sanitizeSnippet, _resetNonceCounter } from "./format.js";
+import { sanitizeSnippet, _resetNonceCounter, formatDuration } from "./format.js";
 
 describe("sanitizeSnippet", () => {
   beforeEach(() => {
@@ -84,5 +84,23 @@ describe("sanitizeSnippet", () => {
     ],
   ])("%s", (_name, input, expected) => {
     expect(sanitizeSnippet(input)).toBe(expected);
+  });
+});
+
+describe("formatDuration", () => {
+  it.each([
+    [500, "1s"],
+    [0, "0s"],
+    [42_000, "42s"],
+    [59_999, "60s"],
+    [60_000, "1m"],
+    [90_000, "1m 30s"],
+    [323_000, "5m 23s"],
+    [3600_000, "1h"],
+    [4320_000, "1h 12m"],
+    [7200_000, "2h"],
+    [86400_000, "24h"],
+  ])("formatDuration(%i) => %s", (ms, expected) => {
+    expect(formatDuration(ms)).toBe(expected);
   });
 });

@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { Session } from "../../api/types.js";
-  import { formatTokenCount } from "../../utils/format.js";
+  import { formatTokenCount, formatDuration } from "../../utils/format.js";
   import {
     calculateModelCost,
     formatCost,
     shortModelName,
   } from "../../utils/pricing.js";
+  import { messages as messagesStore } from "../../stores/messages.svelte.js";
 
   interface Props {
     session: Session;
@@ -49,6 +50,38 @@
       session.cache_creation_input_tokens > 0 ||
       session.cache_read_input_tokens > 0,
   );
+
+  let assistantDurationMs = $derived.by(() => {
+    const msgs = messagesStore.messages;
+    if (msgs.length < 2) return null;
+
+    let totalMs = 0;
+    let turnStartTs: number | null = null;
+    let lastNonUserTs: number | null = null;
+
+    for (const msg of msgs) {
+      const ts = new Date(msg.timestamp).getTime();
+      if (isNaN(ts)) continue;
+
+      if (msg.role === "user") {
+        if (turnStartTs !== null && lastNonUserTs !== null) {
+          totalMs += lastNonUserTs - turnStartTs;
+        }
+        turnStartTs = ts;
+        lastNonUserTs = null;
+      } else {
+        if (turnStartTs !== null) {
+          lastNonUserTs = ts;
+        }
+      }
+    }
+
+    if (turnStartTs !== null && lastNonUserTs !== null) {
+      totalMs += lastNonUserTs - turnStartTs;
+    }
+
+    return totalMs > 0 ? totalMs : null;
+  });
 </script>
 
 {#if hasTokens}
@@ -63,10 +96,11 @@
             <th class="col-num">Cache Read</th>
             <th class="col-num">Cache Write</th>
             <th class="col-cost">Cost</th>
+            <th class="col-num">Duration</th>
           </tr>
         </thead>
         <tbody>
-          {#each models as m}
+          {#each models as m, i}
             <tr>
               <td class="col-model model-name">{m.name}</td>
               <td class="col-num"
@@ -87,6 +121,9 @@
               >
               <td class="col-cost"
                 >{m.cost !== null ? formatCost(m.cost) : "—"}</td
+              >
+              <td class="col-num"
+                >{#if i === 0 && models.length === 1 && assistantDurationMs}{formatDuration(assistantDurationMs)}{/if}</td
               >
             </tr>
           {/each}
@@ -112,6 +149,7 @@
                 )}</td
               >
               <td class="col-cost">{formatCost(totalCost)}</td>
+              <td class="col-num">{assistantDurationMs ? formatDuration(assistantDurationMs) : ""}</td>
             </tr>
           </tfoot>
         {/if}
@@ -129,6 +167,9 @@
             session.cache_creation_input_tokens,
           )} cache write</span
         >
+        {#if assistantDurationMs}
+          <span>{formatDuration(assistantDurationMs)}</span>
+        {/if}
       </div>
     {/if}
   </div>
