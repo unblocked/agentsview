@@ -113,6 +113,9 @@
   let aiLoading: boolean = $state(false);
   let aiPhase: string = $state("");
   let aiError: string = $state("");
+  let aiStartTime: number = $state(0);
+  let aiElapsed: number = $state(0);
+  let elapsedTimer: ReturnType<typeof setInterval> | null = null;
 
   let abortFn: (() => void) | null = null;
 
@@ -154,6 +157,11 @@
     aiError = "";
     aiContent = "";
     aiPhase = "starting";
+    aiStartTime = Date.now();
+    aiElapsed = 0;
+    elapsedTimer = setInterval(() => {
+      aiElapsed = Math.floor((Date.now() - aiStartTime) / 1000);
+    }, 1000);
 
     const handle = generateComparison(
       groupA.sessions.map((s) => s.id),
@@ -173,6 +181,10 @@
     } finally {
       aiLoading = false;
       abortFn = null;
+      if (elapsedTimer) {
+        clearInterval(elapsedTimer);
+        elapsedTimer = null;
+      }
     }
   }
 
@@ -307,10 +319,18 @@
                 Generate AI Comparison
               </button>
             {/if}
-            {#if aiLoading}
-              <span class="ai-phase">{aiPhase}...</span>
-            {/if}
           </div>
+
+          {#if aiLoading}
+            <div class="ai-loading">
+              <div class="ai-spinner"></div>
+              <div class="ai-loading-text">
+                <span class="ai-loading-phase">{aiPhase}</span>
+                <span class="ai-loading-elapsed">{aiElapsed}s elapsed</span>
+              </div>
+              <button class="ai-cancel-btn" onclick={() => { if (abortFn) abortFn(); }}>Cancel</button>
+            </div>
+          {/if}
 
           {#if aiError}
             <div class="ai-error">{aiError}</div>
@@ -524,15 +544,65 @@
     opacity: 0.9;
   }
 
-  .ai-phase {
-    font-size: 11px;
-    color: var(--accent-green);
-    animation: pulse 1.5s ease-in-out infinite;
+  .ai-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-blue) 20%, transparent);
+    border-radius: var(--radius-md);
+    margin-bottom: 10px;
   }
 
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+  .ai-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid color-mix(in srgb, var(--accent-blue) 25%, transparent);
+    border-top-color: var(--accent-blue);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .ai-loading-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .ai-loading-phase {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--accent-blue);
+  }
+
+  .ai-loading-elapsed {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ai-cancel-btn {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    padding: 2px 8px;
+    border: 1px solid var(--border-muted);
+    border-radius: 4px;
+    flex-shrink: 0;
+    transition: color 0.1s, border-color 0.1s;
+  }
+
+  .ai-cancel-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--border-default);
   }
 
   .ai-error {
