@@ -57,6 +57,18 @@ export function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
+/** Formats a duration in milliseconds as a human-friendly string (e.g. "42s", "5m 23s", "1h 12m") */
+export function formatDuration(ms: number): string {
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min < 60) return sec > 0 ? `${min}m ${sec}s` : `${min}m`;
+  const hr = Math.floor(min / 60);
+  const remainMin = min % 60;
+  return remainMin > 0 ? `${hr}h ${remainMin}m` : `${hr}h`;
+}
+
 /** Formats a token count in compact form (e.g. 1234 -> "1.2k", 1234567 -> "1.2M") */
 export function formatTokenCount(n: number): string {
   if (n < 1000) return String(n);
