@@ -418,3 +418,108 @@ func TestExtractSubagentMCPServersEmpty(t *testing.T) {
 		t.Errorf("expected nil, got %v", got)
 	}
 }
+
+func testEngine(t *testing.T) (*Engine, *db.DB) {
+	t.Helper()
+	dir := t.TempDir()
+	d, err := db.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+	t.Cleanup(func() { d.Close() })
+	e := &Engine{db: d, skipCache: make(map[string]int64)}
+	return e, d
+}
+
+func TestWriteMessagesUpdatesToolCallResults(t *testing.T) {
+	e, d := testEngine(t)
+
+	sid := "s1"
+	if err := d.UpsertSession(db.Session{
+		ID: sid, Project: "p", Machine: "m", Agent: "claude",
+		MessageCount: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// First sync: assistant message with tool_call but no result yet.
+	msgs1 := []db.Message{
+		{
+			SessionID: sid, Ordinal: 0, Role: "assistant",
+			Content: "Reading file", HasToolUse: true,
+			Timestamp: "2024-01-01T00:00:00Z",
+			ToolCalls: []db.ToolCall{
+				{SessionID: sid, ToolName: "Read",
+					Category: "Read", ToolUseID: "tu_1"},
+			},
+		},
+	}
+	e.writeMessages(sid, msgs1)
+
+	// Verify tool_call was inserted with NULL result_content.
+	got := queryToolCallResult(t, d, sid, "tu_1")
+	if got != "" {
+		t.Fatalf("expected empty result_content, got %q", got)
+	}
+
+	// Second sync: same messages but now with tool_result paired.
+	msgs2 := []db.Message{
+		{
+			SessionID: sid, Ordinal: 0, Role: "assistant",
+			Content: "Reading file", HasToolUse: true,
+			Timestamp: "2024-01-01T00:00:00Z",
+			ToolCalls: []db.ToolCall{
+				{SessionID: sid, ToolName: "Read",
+					Category: "Read", ToolUseID: "tu_1",
+					ResultContentLength: 500,
+					ResultContent:       "file contents here"},
+			},
+		},
+		{
+			SessionID: sid, Ordinal: 1, Role: "user",
+			Content: "thanks", Timestamp: "2024-01-01T00:00:01Z",
+		},
+	}
+	e.writeMessages(sid, msgs2)
+
+	// Verify tool_call now has result_content.
+	got = queryToolCallResult(t, d, sid, "tu_1")
+	if got != "file contents here" {
+		t.Errorf("result_content = %q, want %q",
+			got, "file contents here")
+	}
+
+	// Verify the new user message was also inserted.
+	maxOrd := d.MaxOrdinal(sid)
+	if maxOrd != 1 {
+		t.Errorf("maxOrd = %d, want 1", maxOrd)
+	}
+}
+
+func queryToolCallResult(
+	t *testing.T, d *db.DB, sid, toolUseID string,
+) string {
+	t.Helper()
+	var rc interface{}
+	err := d.Reader().QueryRow(
+		`SELECT result_content FROM tool_calls
+		 WHERE session_id = ? AND tool_use_id = ?`,
+		sid, toolUseID,
+	).Scan(&rc)
+	if err != nil {
+		t.Fatalf("query tool_call result: %v", err)
+	}
+	if rc == nil {
+		return ""
+	}
+	// SQLite returns []byte for nullable text columns.
+	switch v := rc.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	default:
+		t.Fatalf("unexpected type %T for result_content", rc)
+		return ""
+	}
+}

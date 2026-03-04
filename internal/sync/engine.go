@@ -920,6 +920,30 @@ func (e *Engine) writeMessages(
 		return
 	}
 
+	// Collect tool_calls from existing messages that now
+	// have result_content paired (was NULL in the DB).
+	var tcUpdates []db.ToolCall
+	for _, m := range msgs {
+		if m.Ordinal > maxOrd {
+			break
+		}
+		for _, tc := range m.ToolCalls {
+			if tc.ToolUseID != "" && tc.ResultContent != "" {
+				tcUpdates = append(tcUpdates, tc)
+			}
+		}
+	}
+	if len(tcUpdates) > 0 {
+		if err := e.db.UpdateToolCallResults(
+			sessionID, tcUpdates,
+		); err != nil {
+			log.Printf(
+				"update tool_call results for %s: %v",
+				sessionID, err,
+			)
+		}
+	}
+
 	// Find new messages (ordinal > maxOrd).
 	delta := 0
 	for i, m := range msgs {

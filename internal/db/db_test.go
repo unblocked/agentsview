@@ -1786,6 +1786,83 @@ func TestToolCallsCascadeOnSessionDelete(t *testing.T) {
 	}
 }
 
+func TestUpdateToolCallResults(t *testing.T) {
+	d := testDB(t)
+	insertSession(t, d, "s1", "p")
+
+	// Insert an assistant message with two tool_calls, no result yet.
+	m := asstMsg("s1", 0, "[Read + Grep]")
+	m.HasToolUse = true
+	m.ToolCalls = []ToolCall{
+		{SessionID: "s1", ToolName: "Read", Category: "Read",
+			ToolUseID: "tu_1"},
+		{SessionID: "s1", ToolName: "Grep", Category: "Grep",
+			ToolUseID: "tu_2"},
+	}
+	insertMessages(t, d, m)
+
+	// Verify both have NULL result_content.
+	assertResultContent := func(wantTu1, wantTu2 string) {
+		t.Helper()
+		rows, err := d.Reader().Query(
+			`SELECT tool_use_id, result_content
+			 FROM tool_calls WHERE session_id = ?
+			 ORDER BY id`, "s1")
+		requireNoError(t, err, "query tool_calls")
+		defer rows.Close()
+		got := map[string]string{}
+		for rows.Next() {
+			var id string
+			var rc sql.NullString
+			requireNoError(t, rows.Scan(&id, &rc),
+				"scan tool_call")
+			if rc.Valid {
+				got[id] = rc.String
+			}
+		}
+		requireNoError(t, rows.Err(), "rows.Err")
+		if v := got["tu_1"]; v != wantTu1 {
+			t.Errorf("tu_1 result_content = %q, want %q",
+				v, wantTu1)
+		}
+		if v := got["tu_2"]; v != wantTu2 {
+			t.Errorf("tu_2 result_content = %q, want %q",
+				v, wantTu2)
+		}
+	}
+
+	// Both should be empty (NULL → zero-value string).
+	assertResultContent("", "")
+
+	// Update only tu_1 with result content.
+	err := d.UpdateToolCallResults("s1", []ToolCall{
+		{ToolUseID: "tu_1", ResultContentLength: 42,
+			ResultContent: "file data"},
+	})
+	requireNoError(t, err, "UpdateToolCallResults")
+	assertResultContent("file data", "")
+
+	// Update tu_1 again — should be a no-op (already non-NULL).
+	err = d.UpdateToolCallResults("s1", []ToolCall{
+		{ToolUseID: "tu_1", ResultContentLength: 99,
+			ResultContent: "overwritten"},
+	})
+	requireNoError(t, err, "UpdateToolCallResults idempotent")
+	assertResultContent("file data", "")
+
+	// Update tu_2.
+	err = d.UpdateToolCallResults("s1", []ToolCall{
+		{ToolUseID: "tu_2", ResultContentLength: 10,
+			ResultContent: "grep out"},
+	})
+	requireNoError(t, err, "UpdateToolCallResults tu_2")
+	assertResultContent("file data", "grep out")
+
+	// Empty updates slice is a no-op.
+	err = d.UpdateToolCallResults("s1", nil)
+	requireNoError(t, err, "UpdateToolCallResults nil")
+}
+
 func TestReplaceSessionMessagesReplacesToolCalls(t *testing.T) {
 	d := testDB(t)
 
