@@ -496,6 +496,42 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 	return msgs, rows.Err()
 }
 
+// UpdateToolCallResults updates result_content and
+// result_content_length for tool_calls that currently have
+// NULL result_content. Matched by session_id + tool_use_id.
+func (db *DB) UpdateToolCallResults(
+	sessionID string, updates []ToolCall,
+) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	stmt, err := db.writer.Prepare(`
+		UPDATE tool_calls
+		SET result_content = ?, result_content_length = ?
+		WHERE session_id = ? AND tool_use_id = ?
+			AND result_content IS NULL`)
+	if err != nil {
+		return fmt.Errorf("preparing tool_call update: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, tc := range updates {
+		if _, err := stmt.Exec(
+			tc.ResultContent, tc.ResultContentLength,
+			sessionID, tc.ToolUseID,
+		); err != nil {
+			return fmt.Errorf(
+				"updating tool_call %q: %w", tc.ToolUseID, err,
+			)
+		}
+	}
+	return nil
+}
+
 // MessageCount returns the number of messages for a session.
 func (db *DB) MessageCount(sessionID string) (int, error) {
 	var count int
