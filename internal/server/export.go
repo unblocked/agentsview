@@ -16,9 +16,11 @@ import (
 	"github.com/wesm/agentsview/internal/db"
 )
 
-// getSessionWithMessages fetches a session and its messages by ID,
-// writing appropriate HTTP errors on failure. Returns false if the
-// response has already been written.
+// getSessionWithMessages fetches a session and its messages by ID.
+// For continuation chains, it walks up to the root, collects all
+// sessions in the chain, and returns merged messages. The returned
+// session has aggregated stats. Returns false if the response has
+// already been written.
 func (s *Server) getSessionWithMessages(
 	w http.ResponseWriter, r *http.Request,
 ) (*db.Session, []db.Message, bool) {
@@ -33,12 +35,138 @@ func (s *Server) getSessionWithMessages(
 		return nil, nil, false
 	}
 
-	msgs, err := s.db.GetAllMessages(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return nil, nil, false
+	// Resolve the full continuation chain.
+	chain := s.resolveSessionChain(r.Context(), session)
+
+	var allMsgs []db.Message
+	for _, cs := range chain {
+		msgs, err := s.db.GetAllMessages(r.Context(), cs.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return nil, nil, false
+		}
+		allMsgs = append(allMsgs, msgs...)
 	}
-	return session, msgs, true
+
+	// Use the root session as the primary, with merged stats.
+	merged := mergeSessionChain(chain)
+
+	return merged, allMsgs, true
+}
+
+// resolveSessionChain walks up parent_session_id links to find the
+// root, then collects all continuation children to build the full
+// ordered chain.
+func (s *Server) resolveSessionChain(
+	ctx context.Context, session *db.Session,
+) []*db.Session {
+	// Walk up to root.
+	root := session
+	walkUp := map[string]bool{session.ID: true}
+	for root.ParentSessionID != nil {
+		parent, err := s.db.GetSession(ctx, *root.ParentSessionID)
+		if err != nil || parent == nil {
+			break
+		}
+		if walkUp[parent.ID] {
+			break // cycle guard
+		}
+		walkUp[parent.ID] = true
+		// Only follow continuation links (not forks).
+		if root.RelationshipType == "fork" {
+			break
+		}
+		root = parent
+	}
+
+	// Build the chain from root by following continuation children.
+	// Use a fresh visited set for the downward walk.
+	visited := map[string]bool{root.ID: true}
+	chain := []*db.Session{root}
+	cur := root
+	for {
+		children, err := s.db.GetChildSessions(ctx, cur.ID)
+		if err != nil || len(children) == 0 {
+			break
+		}
+		// Find the continuation child.
+		var next *db.Session
+		for i := range children {
+			c := &children[i]
+			if c.RelationshipType == "continuation" {
+				next = c
+				break
+			}
+		}
+		if next == nil {
+			break
+		}
+		if visited[next.ID] {
+			break // cycle guard
+		}
+		visited[next.ID] = true
+		chain = append(chain, next)
+		cur = next
+	}
+
+	return chain
+}
+
+// mergeSessionChain combines stats from all sessions in a chain,
+// using the root session as the base.
+func mergeSessionChain(chain []*db.Session) *db.Session {
+	if len(chain) <= 1 {
+		return chain[0]
+	}
+
+	// Clone the root.
+	root := *chain[0]
+
+	// Use the last session's end time.
+	last := chain[len(chain)-1]
+	root.EndedAt = last.EndedAt
+
+	// Sum up message counts and tokens.
+	var totalMsgs int
+	var totalInput, totalOutput, totalCacheWrite, totalCacheRead int64
+	for _, s := range chain {
+		totalMsgs += s.MessageCount
+		totalInput += s.InputTokens
+		totalOutput += s.OutputTokens
+		totalCacheWrite += s.CacheCreationInputTokens
+		totalCacheRead += s.CacheReadInputTokens
+	}
+	root.MessageCount = totalMsgs
+	root.InputTokens = totalInput
+	root.OutputTokens = totalOutput
+	root.CacheCreationInputTokens = totalCacheWrite
+	root.CacheReadInputTokens = totalCacheRead
+
+	// Merge token_usage_by_model across chain.
+	merged := make(map[string]modelTokenUsage)
+	for _, s := range chain {
+		if s.TokenUsageByModel == nil {
+			continue
+		}
+		var byModel map[string]modelTokenUsage
+		if json.Unmarshal(s.TokenUsageByModel, &byModel) != nil {
+			continue
+		}
+		for model, usage := range byModel {
+			existing := merged[model]
+			existing.InputTokens += usage.InputTokens
+			existing.OutputTokens += usage.OutputTokens
+			existing.CacheCreationInputTokens += usage.CacheCreationInputTokens
+			existing.CacheReadInputTokens += usage.CacheReadInputTokens
+			merged[model] = existing
+		}
+	}
+	if len(merged) > 0 {
+		data, _ := json.Marshal(merged)
+		root.TokenUsageByModel = data
+	}
+
+	return &root
 }
 
 func (s *Server) handleExportSession(

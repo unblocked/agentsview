@@ -939,6 +939,68 @@ func TestApplyToolAlias(t *testing.T) {
 	}
 }
 
+func TestMergeSessionChain(t *testing.T) {
+	t.Parallel()
+	parent := testSession(func(s *db.Session) {
+		s.ID = "parent"
+		s.MessageCount = 10
+		s.InputTokens = 100
+		s.OutputTokens = 200
+		s.StartedAt = dbtest.Ptr("2025-01-15T10:00:00Z")
+		s.EndedAt = dbtest.Ptr("2025-01-15T10:30:00Z")
+		s.TokenUsageByModel = db.RawJSON(
+			`{"claude-opus-4-6":{"input_tokens":100,"output_tokens":200,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`,
+		)
+	})
+	child := testSession(func(s *db.Session) {
+		s.ID = "child"
+		s.MessageCount = 20
+		s.InputTokens = 300
+		s.OutputTokens = 400
+		s.StartedAt = dbtest.Ptr("2025-01-15T10:30:00Z")
+		s.EndedAt = dbtest.Ptr("2025-01-15T11:00:00Z")
+		s.TokenUsageByModel = db.RawJSON(
+			`{"claude-opus-4-6":{"input_tokens":300,"output_tokens":400,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`,
+		)
+	})
+
+	merged := mergeSessionChain([]*db.Session{parent, child})
+
+	if merged.ID != "parent" {
+		t.Errorf("expected root ID, got %q", merged.ID)
+	}
+	if merged.MessageCount != 30 {
+		t.Errorf("expected 30 messages, got %d", merged.MessageCount)
+	}
+	if merged.InputTokens != 400 {
+		t.Errorf("expected 400 input tokens, got %d", merged.InputTokens)
+	}
+	if merged.OutputTokens != 600 {
+		t.Errorf("expected 600 output tokens, got %d", merged.OutputTokens)
+	}
+	if merged.EndedAt == nil || *merged.EndedAt != "2025-01-15T11:00:00Z" {
+		t.Errorf("expected child end time, got %v", merged.EndedAt)
+	}
+
+	// Check merged token stats produce correct cost.
+	stats, _ := buildTokenStats(merged)
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 model stat, got %d", len(stats))
+	}
+	if stats[0].Input != "400" {
+		t.Errorf("expected merged input 400, got %q", stats[0].Input)
+	}
+}
+
+func TestMergeSessionChain_SingleSession(t *testing.T) {
+	t.Parallel()
+	s := testSession()
+	merged := mergeSessionChain([]*db.Session{s})
+	if merged != s {
+		t.Error("single session should return the same pointer")
+	}
+}
+
 // --- GitHub API mock tests ---
 
 func TestCreateGist(t *testing.T) {
