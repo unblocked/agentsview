@@ -97,17 +97,17 @@ func TestFormatTimestamp(t *testing.T) {
 		{
 			"RFC3339",
 			"2025-01-15T10:30:00Z",
-			"2025-01-15 10:30:00",
+			"Jan 15 at 10:30 AM",
 		},
 		{
 			"RFC3339Nano",
 			"2025-06-01T08:15:30.123456789Z",
-			"2025-06-01 08:15:30",
+			"Jun 1 at 8:15 AM",
 		},
 		{
 			"RFC3339_WithOffset",
 			"2025-03-20T14:00:00+05:00",
-			"2025-03-20 14:00:00",
+			"Mar 20 at 2:00 PM",
 		},
 		{
 			"Empty",
@@ -122,7 +122,7 @@ func TestFormatTimestamp(t *testing.T) {
 		{
 			"Midnight",
 			"2025-12-31T00:00:00Z",
-			"2025-12-31 00:00:00",
+			"Dec 31 at 12:00 AM",
 		},
 	}
 	for _, tt := range tests {
@@ -303,14 +303,72 @@ func TestFormatContentForExport_Escaping(t *testing.T) {
 			},
 			[]string{"<div>"},
 		},
+		{
+			"SkillToolBlock",
+			"[Skill: commit]",
+			[]string{`class="tool-block"`},
+			nil,
+		},
+		{
+			"TaskCreateBlock",
+			"[TaskCreate: Fix bug]",
+			[]string{`class="tool-block"`},
+			nil,
+		},
+		{
+			"SendMessageBlock",
+			"[SendMessage: notification to user]",
+			[]string{`class="tool-block"`},
+			nil,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := formatContentForExport(tt.input)
+			got := formatContentForExport(tt.input, nil)
 			assertContainsAll(t, got, tt.contains)
 			assertContainsNone(t, got, tt.excludes)
 		})
+	}
+}
+
+func TestFormatContentForExport_ToolResults(t *testing.T) {
+	t.Parallel()
+	content := "[Read: main.go]\n$ cat main.go"
+	tcs := []db.ToolCall{{
+		ToolName:      "Read",
+		ResultContent: "package main\nfunc main() {}",
+	}}
+	got := formatContentForExport(content, tcs)
+	assertContainsAll(t, got, []string{
+		`class="tool-result-section"`,
+		`class="result-label"`,
+		"package main",
+	})
+}
+
+func TestFormatContentForExport_ThinkingThenTool(t *testing.T) {
+	t.Parallel()
+	// Verify the terminator consumption bug is fixed:
+	// thinking followed by tool should render both blocks.
+	content := "[Thinking]\nSome thought\n[Bash]\n$ ls"
+	got := formatContentForExport(content, nil)
+	assertContainsAll(t, got, []string{
+		`class="thinking-block"`,
+		`class="tool-block"`,
+		"Some thought",
+	})
+}
+
+func TestFormatContentForExport_ConsecutiveTools(t *testing.T) {
+	t.Parallel()
+	content := "[Read: a.go]\nfoo\n[Read: b.go]\nbar"
+	got := formatContentForExport(content, nil)
+	// Both tool blocks should be present.
+	if strings.Count(got, `class="tool-block"`) < 2 {
+		t.Errorf(
+			"expected 2 tool blocks, got HTML:\n%s", got,
+		)
 	}
 }
 
@@ -377,19 +435,21 @@ func TestGenerateExportHTML_Structure(t *testing.T) {
 		},
 	}
 
-	html := generateExportHTML(session, msgs)
+	out := generateExportHTML(session, msgs)
 
-	assertContainsAll(t, html, []string{
+	assertContainsAll(t, out, []string{
 		"<!DOCTYPE html>",
 		"my-project",
 		"Claude",
 		"2 messages",
 		`class="message user"`,
 		`class="message assistant"`,
+		`class="role-icon user"`,
+		`class="role-icon assistant"`,
 		"Hello agent",
 		"Hi! How can I help?",
-		"2025-01-15 10:00:00",
-		"2025-01-15 10:00:05",
+		"Jan 15 at 10:00 AM",
+		"Jan 15 at 10:00 AM",
 	})
 }
 
@@ -407,8 +467,8 @@ func TestGenerateExportHTML_ThinkingOnlyClass(t *testing.T) {
 		},
 	}
 
-	html := generateExportHTML(session, msgs)
-	if !strings.Contains(html, "thinking-only") {
+	out := generateExportHTML(session, msgs)
+	if !strings.Contains(out, "thinking-only") {
 		t.Error("expected thinking-only class for" +
 			" thinking-only message")
 	}
@@ -447,8 +507,8 @@ func TestGenerateExportHTML_CodexAgent(t *testing.T) {
 		s.Agent = "codex"
 	})
 
-	html := generateExportHTML(session, nil)
-	if !strings.Contains(html, "Codex") {
+	out := generateExportHTML(session, nil)
+	if !strings.Contains(out, "Codex") {
 		t.Error("expected Codex display name for codex agent")
 	}
 }
@@ -459,8 +519,8 @@ func TestGenerateExportHTML_NilStartedAt(t *testing.T) {
 		s.StartedAt = nil
 	})
 
-	html := generateExportHTML(session, nil)
-	if !strings.Contains(html, "<!DOCTYPE html>") {
+	out := generateExportHTML(session, nil)
+	if !strings.Contains(out, "<!DOCTYPE html>") {
 		t.Error("expected valid HTML even with nil StartedAt")
 	}
 }
@@ -528,14 +588,9 @@ func TestExportTemplateValid(t *testing.T) {
 		Project:      "test",
 		Agent:        "Claude",
 		MessageCount: 1,
-		StartedAt:    "2025-01-15 10:00:00",
-		Messages: []exportMessage{
-			{
-				RoleClass:   "user",
-				Role:        "user",
-				Timestamp:   "2025-01-15 10:00:00",
-				ContentHTML: template.HTML("hello"),
-			},
+		StartedAt:    "Jan 15 at 10:00 AM",
+		Items: []template.HTML{
+			template.HTML(`<div class="message user">hello</div>`),
 		},
 	}
 	var b strings.Builder
@@ -544,6 +599,405 @@ func TestExportTemplateValid(t *testing.T) {
 	}
 	if !strings.Contains(b.String(), "<!DOCTYPE html>") {
 		t.Error("expected valid HTML doctype")
+	}
+}
+
+func TestShortModelName(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"claude-opus-4-6", "opus-4-6"},
+		{"claude-sonnet-4-5-20250514", "sonnet-4-5"},
+		{"claude-3-haiku-20240307", "3-haiku"},
+		{"some-model", "some-model"},
+	}
+	for _, tt := range tests {
+		got := shortModelName(tt.in)
+		if got != tt.want {
+			t.Errorf(
+				"shortModelName(%q) = %q, want %q",
+				tt.in, got, tt.want,
+			)
+		}
+	}
+}
+
+func TestFormatTokenCount(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in   int64
+		want string
+	}{
+		{0, "0"},
+		{500, "500"},
+		{1500, "1.5k"},
+		{1_500_000, "1.5M"},
+	}
+	for _, tt := range tests {
+		got := formatTokenCount(tt.in)
+		if got != tt.want {
+			t.Errorf(
+				"formatTokenCount(%d) = %q, want %q",
+				tt.in, got, tt.want,
+			)
+		}
+	}
+}
+
+func TestFormatCost(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in   float64
+		want string
+	}{
+		{0.001, "<$0.01"},
+		{0.50, "$0.50"},
+		{1.23, "$1.23"},
+		{15.0, "$15.0"},
+	}
+	for _, tt := range tests {
+		got := formatCost(tt.in)
+		if got != tt.want {
+			t.Errorf(
+				"formatCost(%f) = %q, want %q",
+				tt.in, got, tt.want,
+			)
+		}
+	}
+}
+
+func TestFormatDurationMs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in   int64
+		want string
+	}{
+		{0, ""},
+		{5000, "5s"},
+		{90_000, "1m 30s"},
+		{3_720_000, "1h 2m"},
+	}
+	for _, tt := range tests {
+		got := formatDurationMs(tt.in)
+		if got != tt.want {
+			t.Errorf(
+				"formatDurationMs(%d) = %q, want %q",
+				tt.in, got, tt.want,
+			)
+		}
+	}
+}
+
+func TestCalculateDurationMs(t *testing.T) {
+	t.Parallel()
+	msgs := []db.Message{
+		{Role: "user", Timestamp: "2025-01-15T10:00:00Z"},
+		{Role: "assistant", Timestamp: "2025-01-15T10:00:30Z"},
+		{Role: "user", Timestamp: "2025-01-15T10:01:00Z"},
+		{Role: "assistant", Timestamp: "2025-01-15T10:01:45Z"},
+	}
+	got := calculateDurationMs(msgs)
+	// 30s + 45s = 75s = 75000ms
+	if got != 75000 {
+		t.Errorf("calculateDurationMs = %d, want 75000", got)
+	}
+}
+
+func TestBuildTokenStats(t *testing.T) {
+	t.Parallel()
+	session := testSession(func(s *db.Session) {
+		s.TokenUsageByModel = db.RawJSON(
+			`{"claude-opus-4-6":{"input_tokens":1000,` +
+				`"output_tokens":2000,` +
+				`"cache_creation_input_tokens":500,` +
+				`"cache_read_input_tokens":300}}`,
+		)
+	})
+	stats, totalCost := buildTokenStats(session)
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 model stat, got %d", len(stats))
+	}
+	if stats[0].Model != "opus-4-6" {
+		t.Errorf("expected model opus-4-6, got %q", stats[0].Model)
+	}
+	if totalCost == "" {
+		t.Error("expected non-empty total cost")
+	}
+}
+
+func TestFindPricing(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		modelID string
+		found   bool
+	}{
+		{"claude-opus-4-6", true},
+		{"claude-sonnet-4-5-20250514", true},
+		{"unknown-model", false},
+	}
+	for _, tt := range tests {
+		p := findPricing(tt.modelID)
+		if (p != nil) != tt.found {
+			t.Errorf(
+				"findPricing(%q) found=%v, want %v",
+				tt.modelID, p != nil, tt.found,
+			)
+		}
+	}
+}
+
+func TestGenerateExportHTML_TokenStats(t *testing.T) {
+	t.Parallel()
+	session := testSession(func(s *db.Session) {
+		s.TokenUsageByModel = db.RawJSON(
+			`{"claude-opus-4-6":{"input_tokens":50000,` +
+				`"output_tokens":10000,` +
+				`"cache_creation_input_tokens":0,` +
+				`"cache_read_input_tokens":0}}`,
+		)
+	})
+	out := generateExportHTML(session, nil)
+	assertContainsAll(t, out, []string{
+		`class="stats-bar"`,
+		`class="stats-table"`,
+		"opus-4-6",
+	})
+}
+
+func TestGenerateExportHTML_Duration(t *testing.T) {
+	t.Parallel()
+	session := testSession()
+	msgs := []db.Message{
+		{Role: "user", Timestamp: "2025-01-15T10:00:00Z"},
+		{Role: "assistant", Timestamp: "2025-01-15T10:02:30Z"},
+	}
+	out := generateExportHTML(session, msgs)
+	if !strings.Contains(out, "2m 30s") {
+		t.Error("expected duration 2m 30s in export")
+	}
+}
+
+func TestGenerateExportHTML_SystemMessages(t *testing.T) {
+	t.Parallel()
+	session := testSession(func(s *db.Session) {
+		s.MessageCount = 1
+	})
+	msgs := []db.Message{
+		{
+			SessionID: "test-id", Ordinal: 0,
+			Role:      "system",
+			Content:   "<command-name>commit</command-name>",
+			Timestamp: "2025-01-15T10:00:00Z",
+		},
+	}
+	out := generateExportHTML(session, msgs)
+	assertContainsAll(t, out, []string{
+		`class="message system"`,
+		`class="role-icon system"`,
+	})
+}
+
+func TestGenerateExportHTML_ToolGrouping(t *testing.T) {
+	t.Parallel()
+	session := testSession(func(s *db.Session) {
+		s.MessageCount = 4
+	})
+	msgs := []db.Message{
+		{
+			SessionID: "test-id", Ordinal: 0,
+			Role: "user", Content: "Fix the bug",
+			Timestamp: "2025-01-15T10:00:00Z",
+		},
+		{
+			SessionID: "test-id", Ordinal: 1,
+			Role: "assistant", HasToolUse: true,
+			Content:   "[Read: main.go]\ncontent",
+			Timestamp: "2025-01-15T10:00:05Z",
+		},
+		{
+			SessionID: "test-id", Ordinal: 2,
+			Role: "assistant", HasToolUse: true,
+			Content:   "[Read: util.go]\nmore content",
+			Timestamp: "2025-01-15T10:00:06Z",
+		},
+		{
+			SessionID: "test-id", Ordinal: 3,
+			Role:      "assistant",
+			Content:   "I found the issue.",
+			Timestamp: "2025-01-15T10:00:10Z",
+		},
+	}
+
+	out := generateExportHTML(session, msgs)
+
+	assertContainsAll(t, out, []string{
+		`class="tool-group"`,
+		"2 tool calls",
+		`class="tool-block"`,
+		"I found the issue.",
+	})
+}
+
+func TestGenerateExportHTML_RoleIcons(t *testing.T) {
+	t.Parallel()
+	session := testSession(func(s *db.Session) {
+		s.MessageCount = 2
+	})
+	msgs := []db.Message{
+		{
+			SessionID: "test-id", Ordinal: 0,
+			Role: "user", Content: "Hello",
+			Timestamp: "2025-01-15T10:00:00Z",
+		},
+		{
+			SessionID: "test-id", Ordinal: 1,
+			Role: "assistant", Content: "Hi",
+			Timestamp: "2025-01-15T10:00:01Z",
+		},
+	}
+	out := generateExportHTML(session, msgs)
+	assertContainsAll(t, out, []string{
+		`<span class="role-icon user">U</span>`,
+		`<span class="role-icon assistant">A</span>`,
+		`<span class="role-label user">User</span>`,
+		`<span class="role-label assistant">Assistant</span>`,
+	})
+}
+
+func TestIsToolOnlyExport(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		msg  db.Message
+		want bool
+	}{
+		{
+			"ToolOnly",
+			db.Message{
+				Role: "assistant", HasToolUse: true,
+				Content: "[Read: main.go]\ncontent",
+			},
+			true,
+		},
+		{
+			"ToolWithText",
+			db.Message{
+				Role: "assistant", HasToolUse: true,
+				Content: "Let me check.\n[Read: main.go]\ncontent",
+			},
+			false,
+		},
+		{
+			"UserMessage",
+			db.Message{
+				Role: "user", Content: "hello",
+			},
+			false,
+		},
+		{
+			"NoToolUse",
+			db.Message{
+				Role: "assistant", HasToolUse: false,
+				Content: "just text",
+			},
+			false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := isToolOnlyExport(tt.msg)
+			if got != tt.want {
+				t.Errorf("isToolOnlyExport = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyToolAlias(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"exec_command", "Bash"},
+		{"shell_command", "Bash"},
+		{"apply_patch", "Edit"},
+		{"Read", "Read"},
+		{"Glob", "Glob"},
+	}
+	for _, tt := range tests {
+		got := applyToolAlias(tt.in)
+		if got != tt.want {
+			t.Errorf(
+				"applyToolAlias(%q) = %q, want %q",
+				tt.in, got, tt.want,
+			)
+		}
+	}
+}
+
+func TestMergeSessionChain(t *testing.T) {
+	t.Parallel()
+	parent := testSession(func(s *db.Session) {
+		s.ID = "parent"
+		s.MessageCount = 10
+		s.InputTokens = 100
+		s.OutputTokens = 200
+		s.StartedAt = dbtest.Ptr("2025-01-15T10:00:00Z")
+		s.EndedAt = dbtest.Ptr("2025-01-15T10:30:00Z")
+		s.TokenUsageByModel = db.RawJSON(
+			`{"claude-opus-4-6":{"input_tokens":100,"output_tokens":200,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`,
+		)
+	})
+	child := testSession(func(s *db.Session) {
+		s.ID = "child"
+		s.MessageCount = 20
+		s.InputTokens = 300
+		s.OutputTokens = 400
+		s.StartedAt = dbtest.Ptr("2025-01-15T10:30:00Z")
+		s.EndedAt = dbtest.Ptr("2025-01-15T11:00:00Z")
+		s.TokenUsageByModel = db.RawJSON(
+			`{"claude-opus-4-6":{"input_tokens":300,"output_tokens":400,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`,
+		)
+	})
+
+	merged := mergeSessionChain([]*db.Session{parent, child})
+
+	if merged.ID != "parent" {
+		t.Errorf("expected root ID, got %q", merged.ID)
+	}
+	if merged.MessageCount != 30 {
+		t.Errorf("expected 30 messages, got %d", merged.MessageCount)
+	}
+	if merged.InputTokens != 400 {
+		t.Errorf("expected 400 input tokens, got %d", merged.InputTokens)
+	}
+	if merged.OutputTokens != 600 {
+		t.Errorf("expected 600 output tokens, got %d", merged.OutputTokens)
+	}
+	if merged.EndedAt == nil || *merged.EndedAt != "2025-01-15T11:00:00Z" {
+		t.Errorf("expected child end time, got %v", merged.EndedAt)
+	}
+
+	// Check merged token stats produce correct cost.
+	stats, _ := buildTokenStats(merged)
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 model stat, got %d", len(stats))
+	}
+	if stats[0].Input != "400" {
+		t.Errorf("expected merged input 400, got %q", stats[0].Input)
+	}
+}
+
+func TestMergeSessionChain_SingleSession(t *testing.T) {
+	t.Parallel()
+	s := testSession()
+	merged := mergeSessionChain([]*db.Session{s})
+	if merged != s {
+		t.Error("single session should return the same pointer")
 	}
 }
 

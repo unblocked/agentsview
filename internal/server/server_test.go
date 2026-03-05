@@ -1219,8 +1219,8 @@ func TestExportSession_HTMLContent(t *testing.T) {
 		"<!DOCTYPE html>",
 		"<header>",
 		"<main>",
-		"message-content",
-		"message-role",
+		"message-body",
+		"role-label",
 		"Agent Session",
 	} {
 		if !strings.Contains(body, want) {

@@ -166,6 +166,22 @@ function buildSegments(
   return segments;
 }
 
+/** Skill/command-related system message prefixes that should
+ *  always be shown in the transcript, even when system messages
+ *  are hidden. */
+const SKILL_PREFIXES = [
+  "<command-name>",
+  "<command-message>",
+  "<local-command-",
+];
+
+/** Returns true if the content looks like a skill execution
+ *  system message (e.g. a slash-command expansion). */
+export function isSkillSystemMessage(content: string): boolean {
+  const trimmed = content.trimStart();
+  return SKILL_PREFIXES.some((p) => trimmed.startsWith(p));
+}
+
 /** Parse message content into typed segments */
 export function parseContent(text: string, hasToolUse = true): ContentSegment[] {
   if (!text) return [];
