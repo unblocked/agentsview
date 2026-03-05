@@ -97,17 +97,17 @@ func TestFormatTimestamp(t *testing.T) {
 		{
 			"RFC3339",
 			"2025-01-15T10:30:00Z",
-			"2025-01-15 10:30:00",
+			"Jan 15 at 10:30 AM",
 		},
 		{
 			"RFC3339Nano",
 			"2025-06-01T08:15:30.123456789Z",
-			"2025-06-01 08:15:30",
+			"Jun 1 at 8:15 AM",
 		},
 		{
 			"RFC3339_WithOffset",
 			"2025-03-20T14:00:00+05:00",
-			"2025-03-20 14:00:00",
+			"Mar 20 at 2:00 PM",
 		},
 		{
 			"Empty",
@@ -122,7 +122,7 @@ func TestFormatTimestamp(t *testing.T) {
 		{
 			"Midnight",
 			"2025-12-31T00:00:00Z",
-			"2025-12-31 00:00:00",
+			"Dec 31 at 12:00 AM",
 		},
 	}
 	for _, tt := range tests {
@@ -341,8 +341,8 @@ func TestFormatContentForExport_ToolResults(t *testing.T) {
 	}}
 	got := formatContentForExport(content, tcs)
 	assertContainsAll(t, got, []string{
-		`class="tool-result"`,
-		`class="tool-result-label"`,
+		`class="tool-result-section"`,
+		`class="result-label"`,
 		"package main",
 	})
 }
@@ -435,19 +435,21 @@ func TestGenerateExportHTML_Structure(t *testing.T) {
 		},
 	}
 
-	html := generateExportHTML(session, msgs)
+	out := generateExportHTML(session, msgs)
 
-	assertContainsAll(t, html, []string{
+	assertContainsAll(t, out, []string{
 		"<!DOCTYPE html>",
 		"my-project",
 		"Claude",
 		"2 messages",
 		`class="message user"`,
 		`class="message assistant"`,
+		`class="role-icon user"`,
+		`class="role-icon assistant"`,
 		"Hello agent",
 		"Hi! How can I help?",
-		"2025-01-15 10:00:00",
-		"2025-01-15 10:00:05",
+		"Jan 15 at 10:00 AM",
+		"Jan 15 at 10:00 AM",
 	})
 }
 
@@ -465,8 +467,8 @@ func TestGenerateExportHTML_ThinkingOnlyClass(t *testing.T) {
 		},
 	}
 
-	html := generateExportHTML(session, msgs)
-	if !strings.Contains(html, "thinking-only") {
+	out := generateExportHTML(session, msgs)
+	if !strings.Contains(out, "thinking-only") {
 		t.Error("expected thinking-only class for" +
 			" thinking-only message")
 	}
@@ -505,8 +507,8 @@ func TestGenerateExportHTML_CodexAgent(t *testing.T) {
 		s.Agent = "codex"
 	})
 
-	html := generateExportHTML(session, nil)
-	if !strings.Contains(html, "Codex") {
+	out := generateExportHTML(session, nil)
+	if !strings.Contains(out, "Codex") {
 		t.Error("expected Codex display name for codex agent")
 	}
 }
@@ -517,8 +519,8 @@ func TestGenerateExportHTML_NilStartedAt(t *testing.T) {
 		s.StartedAt = nil
 	})
 
-	html := generateExportHTML(session, nil)
-	if !strings.Contains(html, "<!DOCTYPE html>") {
+	out := generateExportHTML(session, nil)
+	if !strings.Contains(out, "<!DOCTYPE html>") {
 		t.Error("expected valid HTML even with nil StartedAt")
 	}
 }
@@ -586,14 +588,9 @@ func TestExportTemplateValid(t *testing.T) {
 		Project:      "test",
 		Agent:        "Claude",
 		MessageCount: 1,
-		StartedAt:    "2025-01-15 10:00:00",
-		Messages: []exportMessage{
-			{
-				RoleClass:   "user",
-				Role:        "user",
-				Timestamp:   "2025-01-15 10:00:00",
-				ContentHTML: template.HTML("hello"),
-			},
+		StartedAt:    "Jan 15 at 10:00 AM",
+		Items: []template.HTML{
+			template.HTML(`<div class="message user">hello</div>`),
 		},
 	}
 	var b strings.Builder
@@ -761,8 +758,8 @@ func TestGenerateExportHTML_TokenStats(t *testing.T) {
 				`"cache_read_input_tokens":0}}`,
 		)
 	})
-	html := generateExportHTML(session, nil)
-	assertContainsAll(t, html, []string{
+	out := generateExportHTML(session, nil)
+	assertContainsAll(t, out, []string{
 		`class="stats-bar"`,
 		`class="stats-table"`,
 		"opus-4-6",
@@ -776,8 +773,8 @@ func TestGenerateExportHTML_Duration(t *testing.T) {
 		{Role: "user", Timestamp: "2025-01-15T10:00:00Z"},
 		{Role: "assistant", Timestamp: "2025-01-15T10:02:30Z"},
 	}
-	html := generateExportHTML(session, msgs)
-	if !strings.Contains(html, "2m 30s") {
+	out := generateExportHTML(session, msgs)
+	if !strings.Contains(out, "2m 30s") {
 		t.Error("expected duration 2m 30s in export")
 	}
 }
@@ -795,11 +792,151 @@ func TestGenerateExportHTML_SystemMessages(t *testing.T) {
 			Timestamp: "2025-01-15T10:00:00Z",
 		},
 	}
-	html := generateExportHTML(session, msgs)
-	assertContainsAll(t, html, []string{
+	out := generateExportHTML(session, msgs)
+	assertContainsAll(t, out, []string{
 		`class="message system"`,
-		"system",
+		`class="role-icon system"`,
 	})
+}
+
+func TestGenerateExportHTML_ToolGrouping(t *testing.T) {
+	t.Parallel()
+	session := testSession(func(s *db.Session) {
+		s.MessageCount = 4
+	})
+	msgs := []db.Message{
+		{
+			SessionID: "test-id", Ordinal: 0,
+			Role: "user", Content: "Fix the bug",
+			Timestamp: "2025-01-15T10:00:00Z",
+		},
+		{
+			SessionID: "test-id", Ordinal: 1,
+			Role: "assistant", HasToolUse: true,
+			Content:   "[Read: main.go]\ncontent",
+			Timestamp: "2025-01-15T10:00:05Z",
+		},
+		{
+			SessionID: "test-id", Ordinal: 2,
+			Role: "assistant", HasToolUse: true,
+			Content:   "[Read: util.go]\nmore content",
+			Timestamp: "2025-01-15T10:00:06Z",
+		},
+		{
+			SessionID: "test-id", Ordinal: 3,
+			Role:      "assistant",
+			Content:   "I found the issue.",
+			Timestamp: "2025-01-15T10:00:10Z",
+		},
+	}
+
+	out := generateExportHTML(session, msgs)
+
+	assertContainsAll(t, out, []string{
+		`class="tool-group"`,
+		"2 tool calls",
+		`class="tool-block"`,
+		"I found the issue.",
+	})
+}
+
+func TestGenerateExportHTML_RoleIcons(t *testing.T) {
+	t.Parallel()
+	session := testSession(func(s *db.Session) {
+		s.MessageCount = 2
+	})
+	msgs := []db.Message{
+		{
+			SessionID: "test-id", Ordinal: 0,
+			Role: "user", Content: "Hello",
+			Timestamp: "2025-01-15T10:00:00Z",
+		},
+		{
+			SessionID: "test-id", Ordinal: 1,
+			Role: "assistant", Content: "Hi",
+			Timestamp: "2025-01-15T10:00:01Z",
+		},
+	}
+	out := generateExportHTML(session, msgs)
+	assertContainsAll(t, out, []string{
+		`<span class="role-icon user">U</span>`,
+		`<span class="role-icon assistant">A</span>`,
+		`<span class="role-label user">User</span>`,
+		`<span class="role-label assistant">Assistant</span>`,
+	})
+}
+
+func TestIsToolOnlyExport(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		msg  db.Message
+		want bool
+	}{
+		{
+			"ToolOnly",
+			db.Message{
+				Role: "assistant", HasToolUse: true,
+				Content: "[Read: main.go]\ncontent",
+			},
+			true,
+		},
+		{
+			"ToolWithText",
+			db.Message{
+				Role: "assistant", HasToolUse: true,
+				Content: "Let me check.\n[Read: main.go]\ncontent",
+			},
+			false,
+		},
+		{
+			"UserMessage",
+			db.Message{
+				Role: "user", Content: "hello",
+			},
+			false,
+		},
+		{
+			"NoToolUse",
+			db.Message{
+				Role: "assistant", HasToolUse: false,
+				Content: "just text",
+			},
+			false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := isToolOnlyExport(tt.msg)
+			if got != tt.want {
+				t.Errorf("isToolOnlyExport = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyToolAlias(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"exec_command", "Bash"},
+		{"shell_command", "Bash"},
+		{"apply_patch", "Edit"},
+		{"Read", "Read"},
+		{"Glob", "Glob"},
+	}
+	for _, tt := range tests {
+		got := applyToolAlias(tt.in)
+		if got != tt.want {
+			t.Errorf(
+				"applyToolAlias(%q) = %q, want %q",
+				tt.in, got, tt.want,
+			)
+		}
+	}
 }
 
 // --- GitHub API mock tests ---
