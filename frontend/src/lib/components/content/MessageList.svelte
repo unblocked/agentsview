@@ -12,6 +12,7 @@
     buildDisplayItems,
     type DisplayItem,
   } from "../../utils/display-items.js";
+  import { isSkillSystemMessage } from "../../utils/content-parser.js";
 
   let containerRef: HTMLDivElement | undefined = $state(undefined);
   let scrollRaf: number | null = $state(null);
@@ -20,9 +21,12 @@
   let filteredMessages: Message[] = $derived.by(() => {
     let msgs = messages.messages;
 
-    // Filter system messages by role when toggle is off
+    // Filter system messages by role when toggle is off,
+    // but always keep skill/command-related system messages.
     if (!ui.showSystem) {
-      msgs = msgs.filter((m) => m.role !== "system");
+      msgs = msgs.filter(
+        (m) => m.role !== "system" || isSkillSystemMessage(m.content),
+      );
     }
 
     // Filter thinking-only messages
